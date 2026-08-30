@@ -1,0 +1,83 @@
+name: Autograde submission
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch: {}
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # scoring is pure Python (no lidar/camera processing), so no Docker or
+      # heavy deps needed here — candidates use docker/runtime.Dockerfile
+      # locally to *produce* a submission, CI only reads the resulting file.
+      # data/dev/gt/{A,B}.txt ship with the published dev dataset release —
+      # until that's wired in, this step reports clearly rather than a raw
+      # FileNotFoundError.
+      - name: Score submission (Track A)
+        if: hashFiles('submission_dev.txt') != ''
+        run: |
+          if [ ! -f data/dev/gt/A.txt ]; then
+            echo "::warning::submission_dev.txt found but data/dev/gt/A.txt is not published yet — cannot score."
+            exit 0
+          fi
+          python eval/score.py \
+            --submission submission_dev.txt \
+            --gt data/dev/gt/A.txt \
+            --track A --split dev --method candidate \
+            --out-dir results | tee track_a_output.txt
+
+      - name: Score submission (Track B)
+        if: hashFiles('submission_dev_b.txt') != ''
+        run: |
+          if [ ! -f data/dev/gt/B.txt ]; then
+            echo "::warning::submission_dev_b.txt found but data/dev/gt/B.txt is not published yet — cannot score."
+            exit 0
+          fi
+          python eval/score.py \
+            --submission submission_dev_b.txt \
+            --gt data/dev/gt/B.txt \
+            --track B --split dev --method candidate \
+            --out-dir results | tee track_b_output.txt
+
+      - name: No submission found
+        if: hashFiles('submission_dev.txt') == '' && hashFiles('submission_dev_b.txt') == ''
+        run: |
+          echo "::warning::No submission_dev.txt or submission_dev_b.txt found at repo root — nothing to score yet."
+
+      - name: Write score summary
+        if: always()
+        run: |
+          {
+            echo "## Eternal GLoc Challenge — dev score"
+            echo
+            if [ -f track_a_output.txt ]; then
+              echo "### Track A"
+              echo '```'
+              cat track_a_output.txt
+              echo '```'
+            fi
+            if [ -f track_b_output.txt ]; then
+              echo "### Track B"
+              echo '```'
+              cat track_b_output.txt
+              echo '```'
+            fi
+            if [ ! -f track_a_output.txt ] && [ ! -f track_b_output.txt ]; then
+              echo "_No submission scored yet — commit \`submission_dev.txt\` and/or \`submission_dev_b.txt\` at the repo root._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: score-results
+          path: results/
+          if-no-files-found: ignore
