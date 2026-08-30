@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+.Thumbs.db
+
+# Build outputs and temporary files
+*.o
+*.so
