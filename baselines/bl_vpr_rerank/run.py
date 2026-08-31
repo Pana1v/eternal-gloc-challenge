@@ -3,7 +3,7 @@
 top-K SE(2) hypotheses per scenario using the scenario's camera image,
 cross-checked against the prior map's geometry (no textures exist, so this
 is a structural edge-agreement check, not appearance matching). Cannot
-localize alone by design , it only re-orders/re-weights a hypothesis set it
+localize alone by design; it only re-orders/re-weights a hypothesis set it
 did not generate.
 
 Usage: run.py --scenarios <dir_root> --map <prior_map.pcd>

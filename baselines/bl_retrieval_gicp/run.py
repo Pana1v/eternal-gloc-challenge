@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""B2 baseline: rotation-invariant polar-histogram retrieval against virtual
-scans sampled every ~2m from the prior map, + circular-correlation yaw
-estimation + ICP refinement. The fast/scalable contrast to B1's exhaustive
-search , retrieval is O(database size) per query instead of O(yaws x map
-cells), at the cost of being more alias-prone at rack level (see design
-ch. 5). Uses the full vertical extent in one descriptor, not per-band
-weights like B1 , the simpler, faster tradeoff the design calls for.
+"""B2 baseline: rotation-invariant polar-histogram retrieval against virtual scans sampled
+every ~2m from the prior map, plus circular-correlation yaw estimation and ICP refinement.
+The fast/scalable contrast to B1's exhaustive search: retrieval is O(database size) per
+query instead of O(yaws x map cells), at the cost of being more alias-prone at rack level.
+Uses the full vertical extent in one descriptor, not per-band weights like B1, the simpler,
+faster tradeoff the design calls for.
 
 Usage: run.py --scenarios <dir_root> --map <prior_map.pcd> --out <submission.txt>
 """
@@ -57,18 +56,15 @@ def build_database(map_points_xy: np.ndarray, length: float, width: float):
 
 def run_scenario(scan: np.ndarray, map_points: np.ndarray, map_points_xy: np.ndarray,
                   db_positions, db_keys):
-    """scan: full 3D sensor-local points (used whole for ICP; only xy for
-    the descriptor, since the descriptor deliberately ignores height , see
-    module docstring).
+    """scan: full 3D sensor-local points (used whole for ICP; only xy for the descriptor,
+    since the descriptor deliberately ignores height, see module docstring).
 
-    Selects the final candidate by running ICP on every top-K retrieval and
-    keeping the one with the best *ICP fitness* (real geometric agreement),
-    not by the coarse descriptor's yaw-correlation score. An earlier version
-    picked by yaw-correlation score alone , confirmed against real captured
-    scenarios that this reliably chose the wrong candidate even when the
-    true one was well within the top-K (a near-tied yaw-correlation score
-    for a wrong-but-similar-looking candidate elsewhere in a repetitive
-    warehouse isn't a reliable ranking signal on its own).
+    Selects the final candidate by running ICP on every top-K retrieval and keeping the
+    one with the best *ICP fitness* (real geometric agreement), not the coarse descriptor's
+    yaw-correlation score. An earlier version picked by yaw-correlation score alone: on real
+    captured scenarios that reliably chose the wrong candidate even when the true one was
+    in the top-K, since a near-tied score isn't a reliable ranking signal in a repetitive
+    warehouse.
     """
     scan_xy = scan[:, :2]
     query_ph = build_polar_histogram(scan_xy, center=(0.0, 0.0), n_angle_bins=N_ANGLE_BINS,

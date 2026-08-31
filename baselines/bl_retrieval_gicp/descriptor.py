@@ -1,11 +1,9 @@
-"""A from-scratch rotation-invariant polar BEV descriptor for retrieval-based
-place recognition (design ch. 5, baseline B2 , "the fast/scalable contrast"
-to B1's exhaustive search). Not Scan Context (CC BY-NC-SA, non-redistributable)
-, this is a simpler independent construction: a 2D (angle x radius) point-count
-histogram, plus a rotation-invariant "ring key" (its radius profile, summed
-over angle) used for fast nearest-neighbor retrieval, plus a circular
-cross-correlation of the angle profile (summed over radius) used to estimate
-the best yaw alignment between a query and a retrieved candidate.
+"""From-scratch rotation-invariant polar BEV descriptor for retrieval-based place recognition
+(baseline B2, the fast/scalable contrast to B1's exhaustive search). Not Scan Context
+(CC BY-NC-SA, non-redistributable), a simpler independent construction instead: a 2D
+(angle x radius) point-count histogram, a rotation-invariant "ring key" for fast
+nearest-neighbor retrieval, and a circular cross-correlation for estimating the best
+yaw alignment between a query and a retrieved candidate.
 """
 
 from dataclasses import dataclass
@@ -50,25 +48,12 @@ def build_polar_histogram(points_xy: np.ndarray, center=(0.0, 0.0),
 
 
 def ring_key(ph: PolarHistogram, n_harmonics: int = 5) -> np.ndarray:
-    """Rotation-invariant summary, keeping shape (not just point count).
-
-    A first version of this summed the histogram over angle per radius bin
-    (i.e. kept only each ring's angular DC component) , exactly rotation
-    invariant, but it throws away all shape information: two rings with
-    identical total point count but completely different angular
-    distributions (e.g. a lumpy rack-wall ring vs. a uniform open-floor
-    ring) become indistinguishable. Confirmed against real captured data:
-    the true matching database candidate ranked 155th of 350 by that key ,
-    worse than chance, since a repetitive warehouse has many locations with
-    similar *total* density per radius but very different *shape*.
-
-    Fix: for each radius bin, take the magnitude of that ring's angular
-    Fourier spectrum (DC + first `n_harmonics`). A rotation of the points is
-    a circular shift of the angle axis, which only rotates the FFT's phase ,
-    the magnitude is unchanged , so this stays exactly rotation invariant
-    while keeping real angular structure (how "lumpy" each ring is, and at
-    what spatial frequency).
-    """
+    """Rotation-invariant summary that keeps shape, not just point count. Summing each ring
+    over angle (DC component only) is exactly rotation invariant but throws away shape: rings
+    with the same total count but different angular distributions become indistinguishable,
+    and on real data the true match ranked 155th of 350 by that key. Fix: take the magnitude
+    of each ring's angular Fourier spectrum instead; rotation only shifts phase, so magnitude
+    stays invariant while keeping real angular structure."""
     spectrum = np.fft.fft(ph.hist, axis=0)
     mags = np.abs(spectrum[:n_harmonics + 1, :])
     key = mags.ravel()
@@ -81,19 +66,12 @@ def ring_key_distance(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def estimate_yaw_shift(query_ph: PolarHistogram, candidate_ph: PolarHistogram):
-    """Circular cross-correlation of the angle profiles (summed over radius)
-    to find the best rotation aligning `query_ph` onto `candidate_ph`.
-    Returns (best_yaw_radians, correlation_score in [-1, 1], roughly a
-    cosine similarity). A positive returned yaw means: rotate the query's
-    points by +yaw to align with the candidate.
-
-    Profiles are L2-normalized before correlating , an earlier unnormalized
-    version returned a raw dot product whose scale depends on how many
-    points each profile has, so a denser (but wrong) candidate could
-    outscore a sparser correct one purely on point count, not true shape
-    alignment. Confirmed against real data: this made retrieval pick badly
-    wrong candidates among the top-K even when the true match was included.
-    """
+    """Circular cross-correlation of the angle profiles to find the best rotation aligning
+    `query_ph` onto `candidate_ph`. Returns (best_yaw_radians, cosine-similarity score in
+    [-1, 1]); a positive yaw rotates the query's points to align with the candidate.
+    Profiles are L2-normalized first, an earlier unnormalized version let a denser (but
+    wrong) candidate outscore a sparser correct one on point count alone, which picked
+    badly wrong top-K candidates on real data."""
     n = query_ph.n_angle_bins
     assert candidate_ph.n_angle_bins == n, "angle bin counts must match"
 

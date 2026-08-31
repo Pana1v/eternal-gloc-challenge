@@ -5,7 +5,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 # every baseline names its entrypoint run.py, so a plain `from run import ...`
-# resolves to whichever one pytest collected first , load this one by path
+# resolves to whichever one pytest collected first; load this one by path
 _spec = importlib.util.spec_from_file_location(
     "bl_ga_run", os.path.join(os.path.dirname(__file__), "run.py"))
 _run = importlib.util.module_from_spec(_spec)
@@ -21,8 +21,8 @@ SENSOR_HEIGHT_M = _run.SENSOR_HEIGHT_M
 
 
 def _asymmetric_cluster(cx, cy, rng):
-    """A blob plus an off-center satellite , breaks rotational symmetry, so a
-    recovered yaw is actually meaningful (an isotropic blob fits every yaw)."""
+    """Blob plus an off-center satellite, so it has no rotational symmetry and a
+    recovered yaw is actually meaningful (an isotropic blob would fit every yaw)."""
     main = rng.normal(0, 1.0, size=(400, 3)) * np.array([1.2, 0.3, 0.4])
     satellite = rng.normal(0, 0.15, size=(120, 3)) + np.array([2.5, 1.5, 0.0])
     return np.concatenate([main, satellite], axis=0) + np.array([cx, cy, 0.0])

@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-"""B1 baseline: multi-slice 2D correlative matching (branch-and-bound in
-spirit , an exhaustive FFT-accelerated SE(2) search plays the same role) +
-point-to-plane ICP refinement. The workhorse: exploits the ceiling slices to
-escape rack-level aliasing (see the per-slice score printout).
+"""B1 baseline: multi-slice 2D correlative matching (an exhaustive FFT-accelerated SE(2) search
+standing in for branch-and-bound) plus point-to-plane ICP refinement.
 
 Usage: run.py --scenarios <dir_root> --map <prior_map.pcd> --out <submission.txt>
 """
@@ -28,8 +26,7 @@ SENSOR_HEIGHT_M = 1.0  # fixed rig height (see docs/SENSORS.md); ICP needs
 
 
 def build_slice_bands(z_min: float, z_max: float):
-    """5 bands rescaled to the map's z-extent. Top two bands (ceiling layer)
-    weighted 2x per the B1 baseline spec."""
+    """5 bands rescaled to the map's z-extent; top two (ceiling layer) weighted 2x per spec."""
     height = z_max - z_min
     fracs = [(0.0, 1 / 12), (1 / 12, 3.5 / 12), (3.5 / 12, 6.5 / 12), (6.5 / 12, 9.5 / 12), (9.5 / 12, 1.0)]
     bands = [(z_min + lo * height, z_min + hi * height) for lo, hi in fracs]
@@ -69,15 +66,11 @@ def main():
     y_min, y_max = map_points[:, 1].min(), map_points[:, 1].max()
     z_min, z_max = map_points[:, 2].min(), map_points[:, 2].max()
     length, width = x_max - x_min, y_max - y_min
-    # match_scan_to_map assumes map origin (0, 0) , shift points so the map's
-    # own min corner sits there, matching how the prior map is authored
+    # match_scan_to_map assumes map origin (0, 0); shift points so the map's min corner sits there
     map_points = map_points - np.array([x_min, y_min, 0.0])
 
     slice_bands, slice_weights = build_slice_bands(z_min, z_max)
-    # the lidar's own real range (70 m, see design ch. 3.2) sets the query
-    # extent needed in a full-size world; shrink it for maps smaller than
-    # that so the correlation math still has room to represent every
-    # sensor position (see bev.match_scan_to_map's ValueError otherwise)
+    # cap the 70 m lidar range so small maps still leave room for the correlation search (see match_scan_to_map)
     query_half_extent_m = min(75.0, min(length, width) / 2.5)
 
     writer = SubmissionWriter(args.out)

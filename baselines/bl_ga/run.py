@@ -1,19 +1,10 @@
 #!/usr/bin/env python3
-"""B4 baseline: a naive evolutionary search over SE(2) poses.
+"""B4 baseline: naive evolutionary search over SE(2) poses. Scatter random pose guesses,
+score by scan coverage, keep the best, mutate into the next generation, repeat.
 
-Scatter a population of random pose guesses across the map, score each by
-how much of the scan it explains, keep the best ones, and mutate them into
-the next generation. No structure, no descriptors, no clever indexing ,
-just "guess, rank, jitter the winners, repeat".
-
-The point of contrast with B1/B2: B1 does an exhaustive FFT correlation
-over every (x, y, yaw), which is complete but pays for the whole map every
-time. This pays only for the poses it actually samples, so it scales to
-maps where an exhaustive grid would not fit , but it is stochastic, has no
-completeness guarantee, and will happily converge into a rack-level alias
-and stay there. That failure mode is the interesting part: the surviving
-population is a natural source of the challenge's 3 pose hypotheses, so
-when the search does split across aliases the submission can hedge.
+Unlike B1's exhaustive FFT correlation, this only pays for poses it samples, so it scales
+past B1's grid limit, but it's stochastic and can converge into a rack-level alias; the
+surviving population then doubles as the challenge's 3 pose hypotheses.
 
 Usage: run.py --scenarios <dir_root> --map <prior_map.pcd> --out <submission.txt>
 """
@@ -58,13 +49,9 @@ def random_population(rng, n: int, bounds) -> np.ndarray:
 
 
 def evaluate(poses: np.ndarray, scan: np.ndarray, tree: cKDTree) -> np.ndarray:
-    """Fitness = fraction of scan points landing within INLIER_DIST_M of a
-    map point once the scan is placed at the candidate pose.
-
-    Every candidate is transformed and queried in ONE batched KD-tree call
-    rather than a Python loop over the population , that single change is
-    what keeps a 300-member population over 40 generations tractable.
-    """
+    """Fitness = fraction of scan points within INLIER_DIST_M of a map point at the candidate
+    pose. Batches all candidates into one KD-tree query; a per-candidate Python loop wouldn't
+    scale to a 300-member population over 40 generations."""
     x, y, yaw = poses[:, 0:1], poses[:, 1:2], poses[:, 2:3]
     c, s = np.cos(yaw), np.sin(yaw)
 
@@ -90,12 +77,8 @@ def mutate(elites: np.ndarray, rng, n: int, sigma_xy: float, sigma_yaw: float) -
 
 
 def distinct_top(poses: np.ndarray, fitness: np.ndarray, n: int, min_sep: float):
-    """The n best poses that are at least min_sep apart in xy.
-
-    After the sigma anneal the whole elite pool sits on one spot, so a plain
-    top-n would submit the same answer three times and waste the hedge. This
-    keeps genuinely competing aliases instead.
-    """
+    """The n best poses at least min_sep apart in xy; after the sigma anneal converges
+    the elite pool, a plain top-n would submit the same answer three times and waste the hedge."""
     picked = []
     for idx in np.argsort(fitness)[::-1]:
         if any(np.hypot(*(poses[idx][:2] - poses[p][:2])) < min_sep for p in picked):

@@ -29,9 +29,8 @@ def hypothesis_pose_matrix(x: float, y: float, yaw: float, z: float = 1.0) -> np
 
 def project_points(map_points: np.ndarray, T_map_base: np.ndarray, T_base_camera: np.ndarray,
                     K: np.ndarray, width: int, height: int):
-    """Returns (u, v, depth) arrays for map points that land inside the image
-    with positive depth , everything else is dropped.
-    """
+    """Returns (u, v, depth) for map points landing inside the image with positive depth;
+    everything else is dropped."""
     T_map_camera = T_map_base @ T_base_camera
     T_camera_map = np.linalg.inv(T_map_camera)
 
@@ -54,14 +53,10 @@ def project_points(map_points: np.ndarray, T_map_base: np.ndarray, T_base_camera
 
 def remove_occluded(u: np.ndarray, v: np.ndarray, depth: np.ndarray, width: int, height: int,
                      bucket_px: int = 4):
-    """Keeps only the nearest point per coarse pixel bucket (a simple
-    z-buffer / hidden-point removal). Without this, projecting every nearby
-    map point regardless of occlusion barely depends on the camera's true
-    orientation at all , points behind a rack wall from the real viewpoint
-    still get drawn, so a 180-degree-flipped hypothesis ends up with a
-    similar-looking projected silhouette to the true pose (confirmed in
-    testing: the flip outscored GT in 2 of 3 real scenarios before this).
-    """
+    """Keeps only the nearest point per coarse pixel bucket (a simple z-buffer / hidden-point
+    removal). Without this, points behind a rack wall still get drawn, so a 180-degree-flipped
+    hypothesis produces a similar silhouette to the true pose; the flip outscored GT in 2 of 3
+    real scenarios before this."""
     if len(u) == 0:
         return u, v, depth
 

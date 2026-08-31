@@ -7,7 +7,7 @@ carries `.github/workflows/autograde.yml`, which scores whatever
 published dev ground truth and reports the result in the Actions job
 summary.
 
-Everything past this point is web-UI only — GitHub Classroom has no CLI or
+Everything past this point is web-UI only. GitHub Classroom has no CLI or
 API for creating a classroom or assignment, so these steps need a human at
 [classroom.github.com](https://classroom.github.com).
 
@@ -17,7 +17,7 @@ Classroom attaches to a GitHub **organization**, not a personal account.
 Your current orgs (`tinkerers-lab-iitp`, `Robocon-IIT-Patna`) are unrelated
 IIT Patna clubs, not appropriate for a company hiring challenge. Options:
 
-- Create a new org (e.g. `eternal-ai-hiring` or similar) — free tier is
+- Create a new org (e.g. `eternal-ai-hiring` or similar); free tier is
   fine for this scale. github.com -> "+" -> "New organization".
 - Use an existing company org if eternal.ag already has one on GitHub.
 
@@ -30,7 +30,7 @@ requests admin access to manage repos/teams under it.
 
 - "New assignment" -> **Individual assignment** (one private repo per
   candidate, not shared).
-- Template repository: search for `eternal-gloc-challenge` — it'll show up
+- Template repository: search for `eternal-gloc-challenge`. It'll show up
   since it's marked as a template and Classroom can see any template repo
   your authenticated account can access.
 - Visibility: **private** repos for candidates (default, and what you want
@@ -51,6 +51,6 @@ template) and pushes their submission there.
 ### Known gap
 
 `data/dev/gt/A.txt` and `data/dev/gt/B.txt` (the published dev ground truth
-candidates self-score against) aren't in the repo yet — the full dev dataset
+candidates self-score against) aren't in the repo yet; the full dev dataset
 is still generating. The autograding workflow already handles this
 gracefully (warns instead of crashing) until those files are added.

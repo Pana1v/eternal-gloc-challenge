@@ -15,22 +15,18 @@ jobs:
         with:
           python-version: "3.12"
 
-      # scoring reads only the submission and ground truth text files, so no
-      # Docker or lidar/camera stack is needed — candidates use
-      # docker/runtime.Dockerfile locally to *produce* a submission. numpy
-      # backs the pose math in eval/metrics.py and matplotlib renders the
-      # result plots.
+      # scoring only reads text files, so just numpy (pose math) and matplotlib (plots) are needed;
+      # docker/runtime.Dockerfile is only for candidates producing a submission locally.
       - name: Install scoring dependencies
         run: python -m pip install --disable-pip-version-check numpy matplotlib
 
-      # data/dev/gt/{A,B}.txt ship with the published dev dataset release —
-      # until that's wired in, this step reports clearly rather than a raw
-      # FileNotFoundError.
+      # data/dev/gt/{A,B}.txt ship with the published dataset release; report clearly here
+      # instead of a raw FileNotFoundError until then.
       - name: Score submission (Track A)
         if: hashFiles('submission_dev.txt') != ''
         run: |
           if [ ! -f data/dev/gt/A.txt ]; then
-            echo "::warning::submission_dev.txt found but data/dev/gt/A.txt is not published yet — cannot score."
+            echo "::warning::submission_dev.txt found but data/dev/gt/A.txt is not published yet, cannot score."
             exit 0
           fi
           python eval/score.py \
@@ -43,7 +39,7 @@ jobs:
         if: hashFiles('submission_dev_b.txt') != ''
         run: |
           if [ ! -f data/dev/gt/B.txt ]; then
-            echo "::warning::submission_dev_b.txt found but data/dev/gt/B.txt is not published yet — cannot score."
+            echo "::warning::submission_dev_b.txt found but data/dev/gt/B.txt is not published yet, cannot score."
             exit 0
           fi
           python eval/score.py \
@@ -55,13 +51,13 @@ jobs:
       - name: No submission found
         if: hashFiles('submission_dev.txt') == '' && hashFiles('submission_dev_b.txt') == ''
         run: |
-          echo "::warning::No submission_dev.txt or submission_dev_b.txt found at repo root — nothing to score yet."
+          echo "::warning::No submission_dev.txt or submission_dev_b.txt found at repo root, nothing to score yet."
 
       - name: Write score summary
         if: always()
         run: |
           {
-            echo "## Eternal GLoc Challenge — dev score"
+            echo "## Eternal GLoc Challenge: dev score"
             echo
             if [ -f track_a_output.txt ]; then
               echo "### Track A"
@@ -76,7 +72,7 @@ jobs:
               echo '```'
             fi
             if [ ! -f track_a_output.txt ] && [ ! -f track_b_output.txt ]; then
-              echo "_No submission scored yet — commit \`submission_dev.txt\` and/or \`submission_dev_b.txt\` at the repo root._"
+              echo "_No submission scored yet. Commit \`submission_dev.txt\` and/or \`submission_dev_b.txt\` at the repo root._"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 

@@ -24,7 +24,7 @@ def test_nearby_but_offset_edges_score_higher_than_far_ones():
     base[:, 50] = 1.0
 
     near = np.zeros((100, 100), dtype=np.float32)
-    near[:, 52] = 1.0  # 2 px off , within a typical dilation radius
+    near[:, 52] = 1.0  # 2 px off, within a typical dilation radius
 
     far = np.zeros((100, 100), dtype=np.float32)
     far[:, 90] = 1.0

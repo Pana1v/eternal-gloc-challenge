@@ -4,10 +4,8 @@ from run import build_slice_bands, run_scenario
 
 
 def _cluster(cx, cy, cz, n=200, spread=0.3, rng=None):
-    """An elongated blob plus an off-center satellite marker , breaks every
-    rotational symmetry, matching real rack/aisle geometry's directional
-    asymmetry (an isotropic or merely-elongated blob is ambiguous under some
-    rotation, which isn't what this test is checking)."""
+    """Elongated blob plus an off-center satellite marker, so the shape has no rotational
+    symmetry (an isotropic or merely-elongated blob would leave the pose ambiguous)."""
     rng = rng or np.random.default_rng(0)
     main = rng.normal(0, 1.0, size=(n, 3)) * np.array([spread * 4, spread * 0.5, spread])
     satellite = rng.normal(0, spread * 0.3, size=(n // 4, 3)) + np.array([spread * 3, spread * 2, 0.0])
@@ -23,10 +21,8 @@ def test_build_slice_bands_weights_ceiling_higher():
 
 
 def test_run_scenario_recovers_known_pose_with_icp_refinement(tmp_path):
-    """Regression guard for the init_z bug found while building bl_retrieval_gicp:
-    ICP must be initialized at the rig's actual sensor height, not z=0, or it
-    can find zero correspondences (fitness=0) even from an otherwise-close
-    coarse guess."""
+    """Regression guard: ICP must init at the rig's real sensor height, not z=0, or it
+    can find zero correspondences even from an otherwise-close coarse guess."""
     import open3d as o3d
 
     rng = np.random.default_rng(0)
@@ -57,6 +53,6 @@ def test_run_scenario_recovers_known_pose_with_icp_refinement(tmp_path):
         slice_bands=bands, slice_weights=weights, query_half_extent_m=15.0,
     )
 
-    assert fitness > 0.0, "ICP found zero correspondences , likely the init_z regression"
+    assert fitness > 0.0, "ICP found zero correspondences, likely the init_z regression"
     assert abs(x - true_x) < 0.5
     assert abs(y - true_y) < 0.5
