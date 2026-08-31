@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scenario viewer , the 5-minute path's first stop.
+"""Scenario viewer, the 5-minute path's first stop.
 
 Shows a Track A scenario's lidar scan floating in its own local frame next
 to the prior map (the "kidnapped robot" view: nothing ties the scan to the
@@ -20,8 +20,8 @@ from PIL import Image
 
 
 def parse_kitti_line(line: str) -> np.ndarray:
-    """A KITTI pose line is either `<scenario_id> <12 floats>` (gt files) or
-    just `<12 floats>` (what a user pastes from one) , accept both."""
+    """A KITTI pose line is either `<scenario_id> <12 floats>` (gt files) or just
+    `<12 floats>` (what a user pastes from one); accept both."""
     values = line.strip().split()
     if len(values) == 13:
         values = values[1:]
@@ -56,9 +56,8 @@ def build_scene(scan: o3d.geometry.PointCloud, map_pcd: o3d.geometry.PointCloud,
     scan_colored.paint_uniform_color([0.9, 0.2, 0.2])
 
     if not snapped:
-        # keep the scan visibly disconnected from the map when not snapped ,
-        # nudge it off to one side rather than overlapping the map's own
-        # (0, 0)-relative origin, which would otherwise coincidentally overlap
+        # nudge the scan off to one side so it stays visibly disconnected from the map
+        # instead of coincidentally overlapping the map's own (0, 0)-relative origin
         scan_pts = np.asarray(scan_colored.points)
         map_pts = np.asarray(map_colored.points)
         if scan_pts.size and map_pts.size:

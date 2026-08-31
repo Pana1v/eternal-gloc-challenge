@@ -4,7 +4,7 @@
 
 - Anything that runs CPU-only inside the provided `docker/runtime.Dockerfile`
   image (or a Dockerfile `FROM` it).
-- Rendering **virtual scans from the prior map** , e.g. sampling synthetic
+- Rendering **virtual scans from the prior map**, e.g. sampling synthetic
   lidar sweeps or projections at candidate poses to build a retrieval
   database. This is a legitimate, encouraged technique (baselines B1/B2 use
   variants of it themselves).
@@ -21,7 +21,7 @@
 - Hand-annotating, manually inspecting, or otherwise using human judgment
   on individual **eval** scenarios to produce an answer. (The dev set,
   which ships with ground truth, is yours to inspect and tune against
-  freely , that's what it's for.)
+  freely; that's what it's for.)
 - Any form of per-scenario human input in the scoring loop. Your submission
   must run unattended, start to finish.
 

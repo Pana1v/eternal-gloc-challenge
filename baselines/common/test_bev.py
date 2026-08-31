@@ -7,9 +7,8 @@ from bev import (
 
 
 def _cluster(cx, cy, cz, n=200, spread=0.3, rng=None):
-    """An elongated blob plus an off-center satellite marker, breaking every
-    rotational symmetry , an isotropic or merely-elongated blob is (correctly)
-    ambiguous under some rotation, which these tests aren't testing for."""
+    """Elongated blob plus an off-center satellite marker, so it has no rotational symmetry
+    (an isotropic or merely-elongated blob would be ambiguous under rotation)."""
     rng = rng or np.random.default_rng(0)
     main = rng.normal(0, 1.0, size=(n, 3)) * np.array([spread * 4, spread * 0.5, spread])
     satellite = rng.normal(0, spread * 0.3, size=(n // 4, 3)) + np.array([spread * 3, spread * 2, 0.0])

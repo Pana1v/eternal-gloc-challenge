@@ -134,21 +134,13 @@ def score_scenario(scenario_id: str, T_gt: np.ndarray, hypotheses, track: str) -
 
 
 def random_baseline_score(T_gts, track: str, trials: int = RANDOM_TRIALS, seed: int = RANDOM_SEED):
-    """Expected score of guessing uniformly at random inside the ground
-    truth's own extent, with uniform yaw. This is the chance floor a real
-    method has to beat.
-
-    On a large warehouse it sits near zero, but on a small or degenerate
-    map it can be high , which is exactly the case where a headline score
-    flatters a method that has learned nothing.
-
-    Track B assumes the rational guesser answers at step 0: reading further
-    costs budget and, having no information, buys it nothing.
-
-    Returns None when the GT extent is too small to sample from (a single
-    scenario, or all poses within RANDOM_MIN_EXTENT_M), since every draw
-    would then land on the answer and report a meaninglessly high floor.
-    """
+    """Expected score of guessing uniformly at random inside the ground truth's own extent,
+    with uniform yaw; the chance floor a real method has to beat. Near zero on a large
+    warehouse, but can be high on a small or degenerate map, exactly where a headline score
+    would flatter a method that learned nothing. Track B assumes the guesser answers at step
+    0, since it has no information to justify reading further. Returns None when the GT
+    extent is too small to sample from, since every draw would then land on the answer and
+    report a meaninglessly high floor."""
     if len(T_gts) < 2:
         return None
 

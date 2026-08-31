@@ -1,5 +1,5 @@
-"""Hand-computed pose-error / loss cases , checked against the formulas by
-hand, not against the code's own output.
+"""Hand-computed pose-error / loss cases, checked against the formulas by hand,
+not against the code's own output.
 """
 
 import math
@@ -93,8 +93,7 @@ def test_missing_scenario_scores_loss_one():
 
 
 def test_two_hypothesis_weighted_loss_hand_computed():
-    """hyp1: e_t=0.4 (loss=0.7*0.2+0=0.14... let's pick clean numbers.
-    hyp1: e_t=2.0 e_r=0 -> loss=0.7*1.0=0.7 (capped)
+    """hyp1: e_t=2.0 e_r=0 -> loss=0.7*1.0=0.7 (capped)
     hyp2: e_t=0.0 e_r=0 -> loss=0.0
     weights 0.6 / 0.3 (sum=0.9, remainder 0.1 charged at loss=1)
     expected = 0.6*0.7 + 0.3*0.0 + 0.1*1.0 = 0.42 + 0 + 0.1 = 0.52
