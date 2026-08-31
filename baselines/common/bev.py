@@ -1,11 +1,9 @@
-"""Multi-slice 2D correlative BEV matching , the shared core behind bl_bbs
-and bl_retrieval_gicp. Slice a point cloud into height bands, rasterize each
-to an occupancy grid, and correlate two grids at every translation in one
-shot via FFT cross-correlation (not a per-pixel loop) , this is what makes an
+"""Multi-slice 2D correlative BEV matching, the shared core behind bl_bbs and bl_retrieval_gicp.
+Slices a point cloud into height bands, rasterizes each to an occupancy grid, and correlates
+two grids at every translation in one FFT shot (not a per-pixel loop), which is what makes an
 exhaustive SE(2) search over a whole warehouse tractable on a CPU.
 
-Candidates are free to use, copy, or replace this module; nothing here reads
-from the prior map itself.
+Candidates are free to use, copy, or replace this module; nothing here reads from the prior map itself.
 """
 
 from dataclasses import dataclass
@@ -51,19 +49,12 @@ def rotate_points_2d(points: np.ndarray, yaw: float) -> np.ndarray:
 
 
 def correlate_translation_full(query_grid: np.ndarray, map_grid: np.ndarray):
-    """Uncropped 2D cross-correlation of shape (mnx+qnx-1, mny+qny-1):
-    result[p, q] is the score when query_grid's index (0, 0) is placed at
-    map-relative index (p - (qnx - 1), q - (qny - 1)) , including negative
-    map indices, which a naive "valid convolution" crop would silently drop.
-
-    The map grid is demeaned before correlating (confirmed in testing: the
-    floor and roof are near-continuous surfaces occupying ~97-98% of their
-    height band almost everywhere, so raw dot-product correlation is
-    dominated by trivial "floor matches floor" overlap everywhere, drowning
-    out the sparse features , racks, lamps, HVAC , that actually carry
-    localization signal; demeaning converts a near-uniformly-occupied band
-    to near-zero everywhere while leaving genuinely structured bands intact).
-    """
+    """Uncropped 2D cross-correlation, shape (mnx+qnx-1, mny+qny-1): result[p, q] is the score
+    when query_grid's (0, 0) sits at map-relative (p-(qnx-1), q-(qny-1)), including negative
+    map indices a naive "valid convolution" crop would drop. The map grid is demeaned first:
+    floor and roof are near-continuous surfaces occupying ~97-98% of their height band, so raw
+    dot-product correlation is dominated by trivial floor-matches-floor overlap and drowns out
+    the sparse features (racks, lamps, HVAC) that actually carry localization signal."""
     mnx, mny = map_grid.shape
     qnx, qny = query_grid.shape
     pad_x, pad_y = mnx + qnx, mny + qny
@@ -77,11 +68,9 @@ def correlate_translation_full(query_grid: np.ndarray, map_grid: np.ndarray):
 
 def reference_point_scores(full_corr: np.ndarray, qnx: int, qny: int, ref_i: int, ref_j: int,
                             mnx: int, mny: int) -> np.ndarray:
-    """Re-indexes a correlate_translation_full output by the position of an
-    arbitrary reference point (ref_i, ref_j) inside the query grid , e.g. a
-    sensor centered in a query grid that also covers points behind/left of
-    it , instead of the query's own (0, 0) corner.
-    """
+    """Re-indexes a correlate_translation_full output by an arbitrary reference point
+    (ref_i, ref_j) inside the query grid, e.g. a sensor centered in a grid that also covers
+    points behind/left of it, instead of the query's own (0, 0) corner."""
     p0 = (qnx - 1) - ref_i
     q0 = (qny - 1) - ref_j
     out = np.zeros((mnx, mny), dtype=full_corr.dtype)
@@ -98,10 +87,9 @@ def match_scan_to_map(scan_local: np.ndarray, map_points: np.ndarray,
                        length: float, width: float, slice_bands, slice_weights=None,
                        resolution: float = 0.25, yaw_step_deg: float = 3.0,
                        query_half_extent_m: float = 75.0):
-    """Exhaustive SE(2) correlative match. Returns (best_x, best_y, best_yaw,
-    best_score, per_slice_scores_at_best) , per_slice_scores lets a caller
-    print the "ceiling saves you" breakdown.
-    """
+    """Exhaustive SE(2) correlative match. Returns (best_x, best_y, best_yaw, best_score,
+    per_slice_scores_at_best); per_slice_scores lets a caller print the "ceiling saves you"
+    breakdown."""
     weights = slice_weights or [1.0] * len(slice_bands)
     map_grids = [rasterize_slice(map_points, 0.0, 0.0, length, width, resolution, z_lo, z_hi).grid
                  for z_lo, z_hi in slice_bands]

@@ -1,11 +1,7 @@
-"""Point-to-plane ICP refinement of a correlative-match hypothesis.
-
-The design spec calls for "GICP" refinement (porting slick-lo's CPU GICP).
-This baseline uses Open3D's point-to-plane ICP instead , a materially
-simpler dependency for a reference implementation, and close enough in
-spirit (both are local point-cloud registration refining a coarse initial
-guess) that it doesn't change what the baseline demonstrates. A stronger
-submission is free to swap in real GICP.
+"""Point-to-plane ICP refinement of a correlative-match hypothesis. The design spec calls
+for "GICP" (porting slick-lo's CPU GICP); this baseline uses Open3D's point-to-plane ICP
+instead, a materially simpler dependency that's close enough in spirit (both refine a coarse
+initial guess via local point-cloud registration). A stronger submission can swap in real GICP.
 """
 
 import numpy as np
@@ -15,20 +11,16 @@ import open3d as o3d
 def refine_pose(scan_local: np.ndarray, map_points: np.ndarray, init_x: float, init_y: float,
                  init_yaw: float, init_z: float = 0.0, max_correspondence_dist: float = 0.3,
                  max_iterations: int = 30):
-    """Returns (x, y, yaw, fitness) refined from the (init_x, init_y, init_yaw)
-    coarse hypothesis. map_points should be a local crop around the
-    hypothesis for speed , pass the full map only for small worlds.
+    """Returns (x, y, yaw, fitness) refined from the (init_x, init_y, init_yaw) coarse
+    hypothesis. map_points should be a local crop around the hypothesis for speed; pass the
+    full map only for small worlds.
 
-    `init_z` defaults to 0.0 for backward compatibility, but scan_local's
-    points are in the SENSOR's own local frame , relative to wherever the
-    sensor sits (1.0 m above the floor per the design's fixed rig height),
-    not the floor itself. Leaving init_z at 0 starts ICP about a meter off
-    in height; confirmed in testing this can be fatal when the coarse (x,
-    y, yaw) guess is already noisy (a bad enough combined error pushes every
-    point beyond max_correspondence_dist, so ICP finds zero correspondences
-    even from a supposedly-close start and reports fitness=0). Pass the
-    rig's actual sensor height explicitly if you have one.
-    """
+    `init_z` defaults to 0.0 for backward compatibility, but scan_local's points are in the
+    sensor's own local frame (1.0 m above the floor per the design's fixed rig height), not
+    the floor itself. Leaving init_z at 0 starts ICP about a meter off in height, which can
+    push every point beyond max_correspondence_dist and give zero correspondences (fitness=0)
+    even from an otherwise-close start. Pass the rig's actual sensor height explicitly if you
+    have one."""
     scan_pcd = o3d.geometry.PointCloud()
     scan_pcd.points = o3d.utility.Vector3dVector(scan_local.astype(np.float64))
 
