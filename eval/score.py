@@ -18,11 +18,19 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from metrics import (
-    score_scenario, S_FINE_TRANS_M, S_FINE_ROT_DEG, S_COARSE_TRANS_M, S_COARSE_ROT_DEG,
+    score_scenario, random_baseline_score, RANDOM_TRIALS,
+    S_FINE_TRANS_M, S_FINE_ROT_DEG, S_COARSE_TRANS_M, S_COARSE_ROT_DEG,
     LOSS_TRANS_WEIGHT, LOSS_ROT_WEIGHT, LOSS_TRANS_CAP_M, LOSS_ROT_CAP_DEG,
     TRACK_B_LOSS_WEIGHT, TRACK_B_BUDGET_WEIGHT, TRACK_B_MAX_STEPS, MAX_HYPOTHESES,
 )
 from io_formats import load_gt, load_submission, load_tiers
+
+# plotting is optional: matplotlib is present in the runtime image but a bare
+# scoring environment may not have it, and a missing plot must not fail a run
+try:
+    import plot_results
+except ImportError:
+    plot_results = None
 
 
 def score_all(gt: dict, submissions: dict, track: str):
@@ -81,11 +89,15 @@ def write_stats_csv(scores, out_path: str):
             ])
 
 
-def write_summary_json(out_path: str, track: str, overall: dict, per_tier: dict, args):
+def write_summary_json(out_path: str, track: str, overall: dict, per_tier: dict, args,
+                        random_baseline=None):
     summary = {
         "generated_at": datetime.now().isoformat(),
         "track": track,
         "overall": overall["overall"],
+        "random_baseline": random_baseline,
+        "margin_over_random": (None if random_baseline is None
+                                else overall["overall"]["score"] - random_baseline["score"]),
         "per_tier": per_tier,
         "parameters": {
             "s_fine_trans_m": S_FINE_TRANS_M, "s_fine_rot_deg": S_FINE_ROT_DEG,
@@ -106,6 +118,20 @@ def write_summary_json(out_path: str, track: str, overall: dict, per_tier: dict,
         json.dump(summary, f, indent=2)
 
 
+def write_plots(stats_path: str, tiers_path, random_baseline):
+    """Renders the plots into the result directory alongside stats.csv."""
+    if plot_results is None:
+        print("skipping plots: matplotlib not installed", file=sys.stderr)
+        return
+
+    argv = ["--stats", stats_path]
+    if tiers_path:
+        argv += ["--tiers", tiers_path]
+    if random_baseline is not None:
+        argv += ["--random-loss", str(random_baseline["mean_loss"])]
+    plot_results.main(argv)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--submission", required=True)
@@ -115,6 +141,9 @@ def main(argv=None):
     parser.add_argument("--split", default="dev")
     parser.add_argument("--method")
     parser.add_argument("--tiers", help="optional private CSV: scenario_id,tier")
+    parser.add_argument("--random-trials", type=int, default=RANDOM_TRIALS,
+                         help="random-guess reference draws per scenario; 0 disables")
+    parser.add_argument("--no-plots", action="store_true", help="skip rendering plots")
     args = parser.parse_args(argv)
 
     if args.method is None:
@@ -125,23 +154,39 @@ def main(argv=None):
     scores = score_all(gt, submissions, args.track)
 
     overall = aggregate(scores)
+    tiers = load_tiers(args.tiers) if args.tiers else {}
     per_tier = {}
-    if args.tiers:
-        tiers = load_tiers(args.tiers)
+    if tiers:
         per_tier = aggregate(scores, group_key=lambda sid: tiers.get(sid, "unknown"))
+
+    random_baseline = None
+    if args.random_trials > 0:
+        random_baseline = random_baseline_score(list(gt.values()), args.track,
+                                                 trials=args.random_trials)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     result_dir = os.path.join(args.out_dir, f"{args.split}_{args.method}_{timestamp}")
     os.makedirs(result_dir, exist_ok=True)
 
-    write_stats_csv(scores, os.path.join(result_dir, "stats.csv"))
-    write_summary_json(os.path.join(result_dir, "summary.json"), args.track, overall, per_tier, args)
+    stats_path = os.path.join(result_dir, "stats.csv")
+    write_stats_csv(scores, stats_path)
+    write_summary_json(os.path.join(result_dir, "summary.json"), args.track, overall, per_tier,
+                        args, random_baseline)
 
     print(f"scored {len(scores)} scenarios ({overall['overall']['n_missing']} missing)")
     print(f"headline score: {overall['overall']['score']:.2f}")
+    if random_baseline is not None:
+        margin = overall["overall"]["score"] - random_baseline["score"]
+        print(f"random baseline: {random_baseline['score']:.2f}  (margin {margin:+.2f})")
+    elif args.random_trials > 0:
+        print("random baseline: n/a (ground truth extent too small to sample)")
     print(f"SR@fine: {overall['overall']['sr_fine']:.3f}  SR@coarse: {overall['overall']['sr_coarse']:.3f}")
-    print(f"wrote {result_dir}/stats.csv")
+    print(f"wrote {stats_path}")
     print(f"wrote {result_dir}/summary.json")
+
+    if not args.no_plots:
+        write_plots(stats_path, args.tiers, random_baseline)
+
     return result_dir
 
 

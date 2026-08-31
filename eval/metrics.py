@@ -28,6 +28,11 @@ TRACK_B_MAX_STEPS = 40
 
 MAX_HYPOTHESES = 3
 
+# Random-guess reference baseline
+RANDOM_TRIALS = 200
+RANDOM_SEED = 0
+RANDOM_MIN_EXTENT_M = 1.0  # below this the GT bbox is a point and the floor is meaningless
+
 
 def kitti_line_to_matrix(values) -> np.ndarray:
     """12 floats (3x4 row-major) -> a 4x4 homogeneous transform."""
@@ -126,3 +131,58 @@ def score_scenario(scenario_id: str, T_gt: np.ndarray, hypotheses, track: str) -
         oracle_sr_fine=oracle_fine, oracle_sr_coarse=oracle_coarse,
         missing=False,
     )
+
+
+def random_baseline_score(T_gts, track: str, trials: int = RANDOM_TRIALS, seed: int = RANDOM_SEED):
+    """Expected score of guessing uniformly at random inside the ground
+    truth's own extent, with uniform yaw. This is the chance floor a real
+    method has to beat.
+
+    On a large warehouse it sits near zero, but on a small or degenerate
+    map it can be high , which is exactly the case where a headline score
+    flatters a method that has learned nothing.
+
+    Track B assumes the rational guesser answers at step 0: reading further
+    costs budget and, having no information, buys it nothing.
+
+    Returns None when the GT extent is too small to sample from (a single
+    scenario, or all poses within RANDOM_MIN_EXTENT_M), since every draw
+    would then land on the answer and report a meaninglessly high floor.
+    """
+    if len(T_gts) < 2:
+        return None
+
+    t_gt = np.array([T[:3, 3] for T in T_gts])
+    R_gt = np.array([T[:3, :3] for T in T_gts])
+
+    lo, hi = t_gt.min(axis=0), t_gt.max(axis=0)
+    if np.linalg.norm(hi[:2] - lo[:2]) < RANDOM_MIN_EXTENT_M:
+        return None
+
+    rng = np.random.default_rng(seed)
+    n = len(T_gts)
+    t_hat = rng.uniform(lo, hi, size=(trials, n, 3))
+    yaw = rng.uniform(-np.pi, np.pi, size=(trials, n))
+
+    # both poses are rigid, so the relative translation norm is just the
+    # distance between the two origins
+    e_t = np.linalg.norm(t_hat - t_gt, axis=-1)
+
+    # the guesser is a floor robot: yaw only, roll and pitch stay zero
+    c, s = np.cos(yaw), np.sin(yaw)
+    R_hat = np.zeros(yaw.shape + (3, 3))
+    R_hat[..., 0, 0], R_hat[..., 0, 1] = c, -s
+    R_hat[..., 1, 0], R_hat[..., 1, 1] = s, c
+    R_hat[..., 2, 2] = 1.0
+
+    R_rel = np.einsum("nji,tnjk->tnik", R_gt, R_hat)  # R_gt^T @ R_hat
+    cos_angle = np.clip((np.trace(R_rel, axis1=-2, axis2=-1) - 1.0) / 2.0, -1.0, 1.0)
+    e_r = np.degrees(np.arccos(cos_angle))
+
+    loss = (LOSS_TRANS_WEIGHT * np.minimum(e_t / LOSS_TRANS_CAP_M, 1.0) +
+            LOSS_ROT_WEIGHT * np.minimum(e_r / LOSS_ROT_CAP_DEG, 1.0))
+    if track == "B":
+        loss = TRACK_B_LOSS_WEIGHT * loss  # steps_used = 0, so the budget term drops out
+
+    mean_loss = float(loss.mean())
+    return {"mean_loss": mean_loss, "score": 100.0 * (1.0 - mean_loss), "trials": trials}

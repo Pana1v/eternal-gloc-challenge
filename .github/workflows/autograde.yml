@@ -15,9 +15,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      # scoring is pure Python (no lidar/camera processing), so no Docker or
-      # heavy deps needed here — candidates use docker/runtime.Dockerfile
-      # locally to *produce* a submission, CI only reads the resulting file.
+      # scoring reads only the submission and ground truth text files, so no
+      # Docker or lidar/camera stack is needed — candidates use
+      # docker/runtime.Dockerfile locally to *produce* a submission. numpy
+      # backs the pose math in eval/metrics.py and matplotlib renders the
+      # result plots.
+      - name: Install scoring dependencies
+        run: python -m pip install --disable-pip-version-check numpy matplotlib
+
       # data/dev/gt/{A,B}.txt ship with the published dev dataset release —
       # until that's wired in, this step reports clearly rather than a raw
       # FileNotFoundError.

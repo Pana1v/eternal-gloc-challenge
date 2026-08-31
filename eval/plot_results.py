@@ -47,7 +47,7 @@ def plot_error_cdfs(rows, out_dir):
     _cdf(e_r, os.path.join(out_dir, "e_r_cdf.png"), "rotation error (deg)", "Rotation error CDF")
 
 
-def plot_loss_by_tier(rows, tiers: dict, out_dir):
+def plot_loss_by_tier(rows, tiers: dict, out_dir, random_loss=None):
     if tiers:
         by_tier = {}
         for r in rows:
@@ -58,6 +58,10 @@ def plot_loss_by_tier(rows, tiers: dict, out_dir):
 
         fig, ax = plt.subplots(figsize=(6, 4))
         ax.bar(labels, means)
+        if random_loss is not None:
+            ax.axhline(random_loss, color="crimson", linestyle="--",
+                        label=f"random guess ({random_loss:.3f})")
+            ax.legend()
         ax.set_ylabel("mean loss")
         ax.set_title("Loss by difficulty tier")
         ax.grid(True, axis="y", alpha=0.3)
@@ -68,6 +72,10 @@ def plot_loss_by_tier(rows, tiers: dict, out_dir):
         losses = [float(r["L"]) for r in rows]
         fig, ax = plt.subplots(figsize=(6, 4))
         ax.hist(losses, bins=20, range=(0, 1))
+        if random_loss is not None:
+            ax.axvline(random_loss, color="crimson", linestyle="--",
+                        label=f"random guess ({random_loss:.3f})")
+            ax.legend()
         ax.set_xlabel("per-scenario loss")
         ax.set_ylabel("count")
         ax.set_title("Loss distribution")
@@ -80,6 +88,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--stats", required=True)
     parser.add_argument("--tiers", help="optional private CSV: scenario_id,tier")
+    parser.add_argument("--random-loss", type=float,
+                         help="mean loss of a random guess, drawn as a reference line")
     args = parser.parse_args(argv)
 
     rows = _read_stats(args.stats)
@@ -93,7 +103,7 @@ def main(argv=None):
                 tiers[row["scenario_id"]] = row["tier"]
 
     plot_error_cdfs(rows, out_dir)
-    plot_loss_by_tier(rows, tiers, out_dir)
+    plot_loss_by_tier(rows, tiers, out_dir, random_loss=args.random_loss)
     print(f"wrote plots to {out_dir}")
 
 
