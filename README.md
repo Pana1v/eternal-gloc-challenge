@@ -31,15 +31,57 @@ scored on both accuracy and how much of the budget you used.
 - [`docs/SENSORS.md`](docs/SENSORS.md): the exact rig spec (lidar + camera parameters, calibration format).
 - [`docs/BASELINES.md`](docs/BASELINES.md): what the four shipped baselines do, how they score on dev, and pictures of where they fail.
 
+
+## What you are working with
+
+One lidar scan and one camera image per scenario, against a prior map of the
+whole building. The camera sees the racking, the aisle receding, and the
+ceiling structure above it.
+
+![Sample camera frame](docs/images/sample_camera.png)
+
+## Where the baselines stand
+
+Track A, 40 dev scenarios. `S-fine` is 0.5 m and 5 degrees.
+
+| method | score | SR@fine | sec/scenario |
+| --- | --- | --- | --- |
+| `bl_bbs` multi-slice correlative search | 97.74 | 0.975 | 2.65 |
+| `bl_vpr_rerank` camera edge re-ranking | 97.74 | 0.975 | not recorded |
+| `bl_ga` evolutionary pose search | 22.36 | 0.025 | 10.27 |
+| `bl_retrieval_gicp` polar-histogram retrieval | 7.63 | 0.000 | 23.27 |
+| random guess (reference floor) | 1.64 | - | - |
+
+The scorer writes a self-contained HTML report with a scenario map you can
+page through. Racking is grey, columns and walls and landmarks are dark red,
+the truth is black, and each method gets a colour with a line back to the
+truth. Here two methods sit on the truth while the others land 26.7 m and
+164.1 m away:
+
+![Report scenario map](docs/images/report_scenario_map.png)
+
+The warehouse is repetitive enough that even an exact matcher can be beaten.
+This is the one scenario `bl_bbs` misses: same northing to within 3 mm, same
+heading to within 0.06 degrees, and 110.2 m along the aisle on a bay that
+looks identical.
+
+![Aliasing failure](docs/images/report_aliasing_failure.png)
+
+Full write-up, per-tier numbers and score distributions in
+[`docs/BASELINES.md`](docs/BASELINES.md).
+
 ## Layout
 
 ```
-baselines/common/    shared BEV matching + ICP refinement + submission writer
-baselines/bl_bbs/    B1: multi-slice correlative match + ICP (the workhorse)
-baselines/bl_retrieval_gicp/   B2: descriptor retrieval + refinement
-baselines/bl_vpr_rerank/       B3: vision re-ranking tie-breaker
-eval/                official scorer + plotting
-tools/viewer.py      scenario/map viewer
-docker/              the runtime image your submission must run inside
-ci/smoke_test.sh      end-to-end sanity check (build image, run a baseline, score it)
+baselines/common/               shared bird's-eye-view matching, iterative
+                                closest point refinement, submission writer
+baselines/bl_bbs/               multi-slice correlative search (the workhorse)
+baselines/bl_retrieval_gicp/    polar-histogram retrieval with refinement
+baselines/bl_ga/                evolutionary pose search
+baselines/bl_vpr_rerank/        camera edge re-ranking of another method's
+                                hypotheses (cannot localize on its own)
+eval/                           official scorer, plots, HTML report
+tools/viewer.py                 scenario and map viewer
+docker/                         the runtime image your submission must run in
+ci/smoke_test.sh                end-to-end sanity check
 ```
