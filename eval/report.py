@@ -236,7 +236,9 @@ def render(runs, tiers, title, figures=None):
     sections = [f'<h2>Baselines</h2>{table_html(*summary_table(runs))}'
                 f'<p class="note">Score is 100 x (1 - mean loss). Compute is reported beside the '
                 f'score and is never folded into it. oracle@fine equal to SR@fine means the method '
-                f'submitted a single hypothesis, so no re-ranking headroom exists.</p>'
+                f'submitted a single hypothesis, so no re-ranking headroom exists. '
+                f'Across {n} scenarios a success rate can only move in steps of {1.0 / n:.3f}, '
+                f'so gaps below that are one scenario and mean nothing.</p>'
                 f'{method_glossary(runs)}']
 
     th, tb = tier_table(runs)
