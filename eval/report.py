@@ -21,6 +21,36 @@ import os
 # Difficulty context per scenario, when the private tiers.csv is available.
 TIER_FIELDS = ("tier", "ambiguity_lidar_full", "ambiguity_lidar_low")
 
+# A submission file carries only a method's short name. Spelling out what each
+# one actually does keeps the comparison readable by someone who has not read
+# the baseline sources.
+METHODS = {
+    "bl_bbs": ("B1", "Multi-slice BEV correlative search",
+               "Rasterizes the scan and the prior map into five height bands, then searches "
+               "every (x, y, yaw) exhaustively by FFT cross-correlation, weighting the two "
+               "ceiling bands 2x. Refines the winning pose with point-to-plane ICP."),
+    "bl_retrieval_gicp": ("B2", "Polar-histogram retrieval",
+               "Builds a database of virtual scans sampled every 2 m from the prior map and "
+               "retrieves by a rotation-invariant ring key, recovering yaw by circular "
+               "cross-correlation and refining with ICP. Scales with database size rather "
+               "than map area."),
+    "bl_vpr_rerank": ("B3", "Camera edge re-ranking",
+               "Re-orders and re-weights another method's pose hypotheses by projecting the "
+               "prior map's geometry into the camera and scoring edge agreement against the "
+               "image. Cannot localize on its own."),
+    "bl_ga": ("B4", "Evolutionary pose search",
+               "Scatters a population of random SE(2) guesses, scores each by how much of the "
+               "scan it explains, and mutates the survivors over successive generations. Pays "
+               "only for the poses it samples, and submits its surviving modes as up to three "
+               "hypotheses."),
+}
+
+
+def method_identity(method: str):
+    """(label, short name, description) for a submission's method name."""
+    tag, short, desc = METHODS.get(method, ("", "", ""))
+    return (f"{tag} {method}".strip(), short, desc)
+
 
 def load_runs(results_dir: str):
     """One entry per scored run, newest first when a method was scored twice."""
@@ -53,76 +83,44 @@ def fnum(value, digits=2, dash="-"):
 
 
 CSS = """
-:root{
-  --ground:#F4F6F7; --panel:#FFFFFF; --ink:#16202A; --ink-dim:#5C6B75;
-  --rule:#D8DFE3; --accent:#B8700F; --pass:#1B7F5E; --fail:#C0492F;
-  --pass-bg:#E4F1EB; --fail-bg:#FAE7E3; --shadow:0 1px 2px rgba(22,32,42,.06);
-}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    --ground:#0F1518; --panel:#161E23; --ink:#DCE4E8; --ink-dim:#8A9AA4;
-    --rule:#26333A; --accent:#E8A040; --pass:#4FBF95; --fail:#E87B66;
-    --pass-bg:#13302A; --fail-bg:#331E1B; --shadow:none;
-  }
-}
-:root[data-theme="dark"]{
-  --ground:#0F1518; --panel:#161E23; --ink:#DCE4E8; --ink-dim:#8A9AA4;
-  --rule:#26333A; --accent:#E8A040; --pass:#4FBF95; --fail:#E87B66;
-  --pass-bg:#13302A; --fail-bg:#331E1B; --shadow:none;
-}
-*{box-sizing:border-box}
-body{background:var(--ground);color:var(--ink);
-  font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
-  line-height:1.55;padding:40px 24px 80px}
-.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
-h1,h2{font-family:Archivo,system-ui,sans-serif;font-weight:700;
-  letter-spacing:-.02em;text-wrap:balance;margin:0}
-h1{font-size:2.1rem;line-height:1.15}
-h2{font-size:1.15rem;letter-spacing:.02em;text-transform:uppercase;
-  color:var(--ink-dim);font-size:.82rem;padding-bottom:8px;border-bottom:1px solid var(--rule)}
-.sub{color:var(--ink-dim);max-width:65ch;margin:10px 0 0}
-.facts{display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:18px;
-  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.78rem;color:var(--ink-dim)}
-.facts b{color:var(--ink);font-weight:500}
-section{display:flex;flex-direction:column;gap:14px}
-.scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--rule);
-  border-radius:6px;box-shadow:var(--shadow)}
-table{border-collapse:collapse;width:100%;font-size:.85rem}
-th,td{padding:9px 14px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--rule)}
-th{font-family:"IBM Plex Mono",monospace;font-size:.68rem;text-transform:uppercase;
-  letter-spacing:.06em;color:var(--ink-dim);font-weight:500;
-  position:sticky;top:0;background:var(--panel)}
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;
+  line-height:1.5;color:#111;background:#fff;margin:24px;max-width:1400px}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:15px;margin:28px 0 8px;border-bottom:1px solid #999;padding-bottom:3px}
+p.note{color:#444;font-size:13px;margin:6px 0 0;max-width:90ch}
+table{border-collapse:collapse;margin-top:6px;font-size:13px}
+th,td{border:1px solid #999;padding:4px 8px;text-align:right;white-space:nowrap}
+th{background:#eee;font-weight:600;text-align:right}
 th:first-child,td:first-child{text-align:left}
-tbody tr:last-child td{border-bottom:none}
-td.num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
-td.name{font-family:"IBM Plex Mono",monospace;font-weight:500}
-tr.reference td{color:var(--ink-dim);font-style:italic;
-  border-top:2px solid var(--rule);background:transparent}
-.lead{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
-  font-size:1.05rem;font-weight:600;color:var(--accent)}
-.chip{display:inline-block;min-width:2.6em;padding:1px 7px;border-radius:3px;
-  font-family:"IBM Plex Mono",monospace;font-size:.72rem;font-weight:500}
-.ok{background:var(--pass-bg);color:var(--pass)}
-.bad{background:var(--fail-bg);color:var(--fail)}
-.rail{border-left:3px solid var(--accent);padding-left:14px}
-.note{color:var(--ink-dim);font-size:.82rem;max-width:70ch}
-footer{color:var(--ink-dim);font-size:.75rem;font-family:"IBM Plex Mono",monospace;
-  border-top:1px solid var(--rule);padding-top:16px}
+td.name,td.num{font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-variant-numeric:tabular-nums}
+td.desc{white-space:normal;text-align:left;font-size:12px;color:#333;max-width:60ch}
+tr.reference td{background:#f4f4f4;font-style:italic}
+.pass{color:#060;font-weight:600}
+.fail{color:#a00;font-weight:600}
+.scroll{overflow-x:auto}
+dl{font-size:13px;margin:6px 0 0}
+dt{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:600;margin-top:6px}
+dd{margin:0 0 0 24px;color:#333}
+footer{margin-top:28px;border-top:1px solid #999;padding-top:8px;
+  font-size:12px;color:#444}
 """
 
 
 def summary_table(runs):
     """Baseline-wise: one row per method, random guess as a reference row."""
-    head = ["method", "score", "SR@fine", "SR@coarse", "oracle@fine", "mean loss",
-            "missing", "s/scenario", "peak RSS"]
+    head = ["method", "approach", "score", "SR@fine", "SR@coarse", "oracle@fine",
+            "mean loss", "missing", "sec/scenario", "peak RSS (MB)"]
     body = []
     reference = None
     for method, run in sorted(runs.items(), key=lambda kv: -kv[1]["summary"]["overall"]["score"]):
         o = run["summary"]["overall"]
         c = run["summary"].get("compute") or {}
+        label, short, _ = method_identity(method)
         body.append(
-            f'<tr><td class="name">{html.escape(method)}</td>'
-            f'<td class="num lead">{fnum(o["score"])}</td>'
+            f'<tr><td class="name">{html.escape(label)}</td>'
+            f'<td class="desc">{html.escape(short)}</td>'
+            f'<td class="num">{fnum(o["score"])}</td>'
             f'<td class="num">{fnum(o["sr_fine"], 3)}</td>'
             f'<td class="num">{fnum(o["sr_coarse"], 3)}</td>'
             f'<td class="num">{fnum(o["oracle_sr_fine"], 3)}</td>'
@@ -135,7 +133,8 @@ def summary_table(runs):
             reference = rb
     if reference:
         body.append(
-            f'<tr class="reference"><td class="name">random guess (reference)</td>'
+            f'<tr class="reference"><td class="name">random guess</td>'
+            f'<td class="desc">uniform pose inside the ground-truth extent (reference floor)</td>'
             f'<td class="num">{fnum(reference["score"])}</td>'
             f'<td class="num">{fnum(reference.get("sr_fine"), 3)}</td>'
             f'<td class="num">{fnum(reference.get("sr_coarse"), 3)}</td>'
@@ -144,20 +143,32 @@ def summary_table(runs):
     return head, body
 
 
+def method_glossary(runs):
+    """What each method actually does, spelled out under the summary table."""
+    items = []
+    for method in sorted(runs):
+        label, short, desc = method_identity(method)
+        if not desc:
+            continue
+        items.append(f"<dt>{html.escape(label)} &mdash; {html.escape(short)}</dt>"
+                      f"<dd>{html.escape(desc)}</dd>")
+    return f"<dl>{''.join(items)}</dl>" if items else ""
+
+
 def tier_table(runs):
     tiers = sorted({t for r in runs.values() for t in r["summary"].get("per_tier", {})})
     if not tiers:
         return None, None
-    head = ["method"] + [f"{t} score / SR@fine" for t in tiers]
+    head = ["method"] + [f"{t}: score / SR@fine (n)" for t in tiers]
     body = []
     for method, run in sorted(runs.items()):
         cells = []
         for t in tiers:
             m = run["summary"].get("per_tier", {}).get(t)
             cells.append(f'<td class="num">{fnum(m["score"])} &middot; {fnum(m["sr_fine"], 3)} '
-                         f'<span style="color:var(--ink-dim)">(n={m["n_scenarios"]})</span></td>'
+                         f'(n={m["n_scenarios"]})</td>'
                          if m else '<td class="num">-</td>')
-        body.append(f'<tr><td class="name">{html.escape(method)}</td>' + "".join(cells) + "</tr>")
+        body.append(f'<tr><td class="name">{html.escape(method_identity(method)[0])}</td>'                     + "".join(cells) + "</tr>")
     return head, body
 
 
@@ -174,7 +185,7 @@ def casewise_table(runs, tiers):
 
     ids.sort(key=difficulty)
     head = ["scenario"] + (["tier", "aliases"] if tiers else []) + \
-           [f"{m} e_t / e_r" for m in methods]
+           [f"{method_identity(m)[0]}: e_t (m) / e_r (deg)" for m in methods]
     body = []
     for sid in ids:
         cells = [f'<td class="name">{html.escape(sid)}</td>']
@@ -187,9 +198,9 @@ def casewise_table(runs, tiers):
             if not row or row.get("missing") == "1":
                 cells.append('<td class="num">-</td>')
                 continue
-            klass = "ok" if row["sr_fine"] == "1" else "bad"
-            cells.append(f'<td class="num"><span class="chip {klass}">{fnum(row["e_t"])} m</span> '
-                         f'{fnum(row["e_r"], 1)}&deg;</td>')
+            klass = "pass" if row["sr_fine"] == "1" else "fail"
+            cells.append(f'<td class="num"><span class="{klass}">{fnum(row["e_t"])}</span> / '
+                         f'{fnum(row["e_r"], 1)}</td>')
         body.append("<tr>" + "".join(cells) + "</tr>")
     return head, body
 
@@ -209,45 +220,36 @@ def render(runs, tiers, title):
     generated = any_summary.get("generated_at", "")
     p = any_summary.get("parameters", {})
 
-    facts = (f'<div class="facts"><span>track <b>{html.escape(str(track))}</b></span>'
-             f'<span>scenarios <b>{n}</b></span>'
-             f'<span>methods <b>{len(runs)}</b></span>'
-             f'<span>S-fine <b>&le;{p.get("s_fine_trans_m", "?")} m / &le;{p.get("s_fine_rot_deg", "?")}&deg;</b></span>'
-             f'<span>S-coarse <b>&le;{p.get("s_coarse_trans_m", "?")} m / &le;{p.get("s_coarse_rot_deg", "?")}&deg;</b></span>'
-             f'<span>generated <b>{html.escape(generated[:19])}</b></span></div>')
+    facts = (f"<p class=\"note\">Track {html.escape(str(track))} &middot; {n} scenarios &middot; "
+             f"{len(runs)} method{'s' if len(runs) != 1 else ''} &middot; "
+             f"S-fine &le; {p.get('s_fine_trans_m', '?')} m and &le; {p.get('s_fine_rot_deg', '?')} deg &middot; "
+             f"S-coarse &le; {p.get('s_coarse_trans_m', '?')} m and &le; {p.get('s_coarse_rot_deg', '?')} deg &middot; "
+             f"generated {html.escape(generated[:19])}</p>")
 
-    sections = [f'<section><h2>Baselines</h2>{table_html(*summary_table(runs))}'
-                f'<p class="note">Score is <code>100 &times; (1 - mean loss)</code>. '
-                f'Compute is reported beside the score, never folded into it. '
-                f'<code>oracle@fine</code> equal to <code>SR@fine</code> means the method '
-                f'submitted a single hypothesis, so no re-ranking headroom exists.</p></section>']
+    sections = [f'<h2>Baselines</h2>{table_html(*summary_table(runs))}'
+                f'<p class="note">Score is 100 x (1 - mean loss). Compute is reported beside the '
+                f'score and is never folded into it. oracle@fine equal to SR@fine means the method '
+                f'submitted a single hypothesis, so no re-ranking headroom exists.</p>'
+                f'{method_glossary(runs)}']
 
     th, tb = tier_table(runs)
     if th:
-        sections.append(f'<section><h2>By difficulty tier</h2>{table_html(th, tb)}'
-                        f'<p class="note">Tiers come from the measured alias count. A '
-                        f'non-monotonic ordering here means the tier labels are not tracking '
-                        f'real difficulty.</p></section>')
+        sections.append(f'<h2>By difficulty tier</h2>{table_html(th, tb)}'
+                        f'<p class="note">Tiers come from the measured alias count (T1 = 0 aliases, '
+                        f'T2 &le; 3, T3 above). A non-monotonic ordering here means the tier labels '
+                        f'are not tracking real difficulty.</p>')
 
-    sections.append(f'<section><h2>Casewise</h2>{table_html(*casewise_table(runs, tiers))}'
-                    f'<p class="note">Translation error, with rotation error beside it. Green '
-                    f'passes S-fine, red does not. '
-                    f'{"Ordered hardest-first by measured rack-level aliases." if tiers else ""}</p></section>')
+    sections.append(f'<h2>Casewise</h2>{table_html(*casewise_table(runs, tiers))}'
+                    f'<p class="note">Per scenario: translation error in metres / rotation error in '
+                    f'degrees. Green passes S-fine, red does not. '
+                    f'{"Ordered hardest-first by measured rack-level aliases." if tiers else ""}</p>')
 
     return f"""<title>{html.escape(title)}</title>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
 <style>{CSS}</style>
-<div class="wrap">
-  <header class="rail">
-    <h1>{html.escape(title)}</h1>
-    <p class="sub">Global localization results across every scored baseline, with the
-    random-guess floor as reference and per-scenario detail below.</p>
-    {facts}
-  </header>
-  {"".join(sections)}
-  <footer>Generated by eval/report.py from stats.csv and summary.json.</footer>
-</div>"""
+<h1>{html.escape(title)}</h1>
+{facts}
+{"".join(sections)}
+<footer>Generated by eval/report.py from stats.csv and summary.json.</footer>"""
 
 
 def main(argv=None):
