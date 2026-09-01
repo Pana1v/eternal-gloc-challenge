@@ -6,6 +6,7 @@ Usage: run.py --scenarios <dir_root> --map <prior_map.pcd> --out <submission.txt
 """
 
 import argparse
+import multiprocessing
 import os
 import sys
 import time
@@ -53,11 +54,44 @@ def run_scenario(scenario_dir: str, map_points: np.ndarray, length: float, width
     return x, y, yaw, score, fitness, per_slice
 
 
+# Scenarios are independent and numpy's FFT is single-threaded, so a
+# sequential run leaves every core but one idle.
+#
+# Workers start via "spawn" and load the map themselves rather than
+# inheriting it through fork. Inheriting is tempting , copy-on-write would
+# share the 9 M-point map for free , but the parent has already used Open3D
+# by then, and forking a process with live thread pools gives the child locks
+# whose owning threads do not exist in it. Confirmed here: every fork worker
+# completed its scenario, then hung forever at pool teardown. Re-reading the
+# map costs a few seconds per worker and cannot deadlock. Same shape as
+# generate_dataset._init_worker in the datagen package.
+_CTX = {}
+
+
+def _init_worker(map_path, x_min, y_min, length, width, slice_bands, slice_weights,
+                  query_half_extent_m, scenarios):
+    map_points = np.asarray(o3d.io.read_point_cloud(map_path).points)
+    _CTX.update(scenarios=scenarios, map_points=map_points - np.array([x_min, y_min, 0.0]),
+                length=length, width=width, slice_bands=slice_bands,
+                slice_weights=slice_weights, query_half_extent_m=query_half_extent_m)
+
+
+def _run_one(scenario_id: str):
+    t0 = time.time()
+    result = run_scenario(
+        os.path.join(_CTX["scenarios"], scenario_id), _CTX["map_points"],
+        _CTX["length"], _CTX["width"], _CTX["slice_bands"], _CTX["slice_weights"],
+        _CTX["query_half_extent_m"])
+    return (scenario_id, *result, time.time() - t0)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenarios", required=True)
     parser.add_argument("--map", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--workers", type=int, default=0,
+                         help="parallel scenario workers (0 = all cores, 1 = sequential)")
     args = parser.parse_args()
 
     map_pcd = o3d.io.read_point_cloud(args.map)
@@ -77,16 +111,26 @@ def main():
     scenario_ids = sorted(d for d in os.listdir(args.scenarios)
                            if os.path.isdir(os.path.join(args.scenarios, d)))
 
-    t_start = time.time()
-    for scenario_id in scenario_ids:
-        scenario_dir = os.path.join(args.scenarios, scenario_id)
-        t0 = time.time()
-        x, y, yaw, score, fitness, per_slice = run_scenario(
-            scenario_dir, map_points, length, width, slice_bands, slice_weights, query_half_extent_m)
-        elapsed = time.time() - t0
+    workers = args.workers if args.workers > 0 else (os.cpu_count() or 1)
+    workers = max(1, min(workers, len(scenario_ids)))
+    init_args = (args.map, x_min, y_min, length, width, slice_bands, slice_weights,
+                 query_half_extent_m, args.scenarios)
 
+    t_start = time.time()
+    if workers == 1:
+        _init_worker(*init_args)
+        results = [_run_one(sid) for sid in scenario_ids]
+    else:
+        # map() keeps results in scenario order, so the submission is
+        # identical to the sequential one regardless of worker count
+        ctx = multiprocessing.get_context("spawn")
+        with ctx.Pool(workers, initializer=_init_worker, initargs=init_args) as pool:
+            results = pool.map(_run_one, scenario_ids)
+
+    cpu_sec_total = sum(r[-1] for r in results)
+    for scenario_id, x, y, yaw, score, fitness, per_slice, elapsed in results:
         # answers are in the ORIGINAL map frame (undo the shift above)
-        T = pose_matrix_from_xy_yaw(x + x_min, y + y_min, yaw)
+        T = pose_matrix_from_xy_yaw(x + x_min, y + y_min, yaw, z=SENSOR_HEIGHT_M)
         writer.add(scenario_id, T, weight=1.0, k=0)
         print(f"{scenario_id}: pose=({x + x_min:.2f}, {y + y_min:.2f}, yaw={np.degrees(yaw):.1f}deg) "
               f"score={score:.1f} icp_fitness={fitness:.2f} slices={[f'{s:.1f}' for s in per_slice]} "
@@ -96,7 +140,9 @@ def main():
     write_submission_meta(
         args.out + ".meta.json", method_name="bl_bbs", runtime_sec_total=time.time() - t_start,
         params={"resolution_m": RESOLUTION_M, "yaw_step_deg": YAW_STEP_DEG,
-                "icp_crop_radius_m": ICP_CROP_RADIUS_M, "slice_weights": slice_weights},
+                "icp_crop_radius_m": ICP_CROP_RADIUS_M, "slice_weights": slice_weights,
+                 "workers": workers, "cpu_sec_total": cpu_sec_total},
+        n_scenarios=len(scenario_ids),
     )
     print(f"wrote {args.out} ({len(scenario_ids)} scenarios)")
 

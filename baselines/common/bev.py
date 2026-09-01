@@ -55,13 +55,30 @@ def correlate_translation_full(query_grid: np.ndarray, map_grid: np.ndarray):
     floor and roof are near-continuous surfaces occupying ~97-98% of their height band, so raw
     dot-product correlation is dominated by trivial floor-matches-floor overlap and drowns out
     the sparse features (racks, lamps, HVAC) that actually carry localization signal."""
-    mnx, mny = map_grid.shape
-    qnx, qny = query_grid.shape
-    pad_x, pad_y = mnx + qnx, mny + qny
+    map_f, map_shape = precompute_map_fft(map_grid, *query_grid.shape)
+    return correlate_translation_full_precomputed(query_grid, map_f, map_shape)
 
-    demeaned_map = map_grid - map_grid.mean()
-    map_f = np.fft.fft2(demeaned_map, s=(pad_x, pad_y))
-    query_f = np.fft.fft2(query_grid[::-1, ::-1], s=(pad_x, pad_y))
+
+def precompute_map_fft(map_grid: np.ndarray, qnx: int, qny: int):
+    """The map's demeaned FFT, which is loop-invariant across yaw hypotheses:
+    only the query rotates, the map never does. Computing it inside the yaw
+    loop costs one of the three transforms per (yaw, slice) for nothing , at
+    120 yaws x 5 slices that is 600 map FFTs where 5 suffice.
+
+    Returns (map_f, map_shape) for correlate_translation_full_precomputed.
+    """
+    mnx, mny = map_grid.shape
+    return np.fft.fft2(map_grid - map_grid.mean(), s=(mnx + qnx, mny + qny)), (mnx, mny)
+
+
+def correlate_translation_full_precomputed(query_grid: np.ndarray, map_f: np.ndarray, map_shape):
+    """correlate_translation_full against an already-transformed map. The pad
+    size is a function of both shapes, so map_f must have been built with this
+    query's dimensions.
+    """
+    mnx, mny = map_shape
+    qnx, qny = query_grid.shape
+    query_f = np.fft.fft2(query_grid[::-1, ::-1], s=(mnx + qnx, mny + qny))
     corr = np.fft.ifft2(map_f * query_f).real
     return corr[:mnx + qnx - 1, :mny + qny - 1], (qnx, qny)
 
@@ -101,15 +118,20 @@ def match_scan_to_map(scan_local: np.ndarray, map_points: np.ndarray,
     yaws = np.arange(0.0, 2 * np.pi, np.radians(yaw_step_deg))
     best = (0.0, 0.0, 0.0, -np.inf, None)
 
+    # every query grid has the same shape regardless of yaw, so each slice's
+    # map FFT can be built once here instead of once per yaw
+    qn = max(1, int(np.ceil(2 * query_half_extent_m / resolution)))
+    map_ffts = [precompute_map_fft(g, qn, qn) for g in map_grids]
+
     for yaw in yaws:
         rotated = rotate_points_2d(scan_local, yaw)
         per_slice = []
         combined = np.zeros((nx, ny), dtype=np.float32)
-        for (z_lo, z_hi), map_grid, w in zip(slice_bands, map_grids, weights):
+        for (z_lo, z_hi), (map_f, map_shape), w in zip(slice_bands, map_ffts, weights):
             query_grid = rasterize_slice(rotated, -query_half_extent_m, -query_half_extent_m,
                                           length=2 * query_half_extent_m, width=2 * query_half_extent_m,
                                           resolution=resolution, z_lo=z_lo, z_hi=z_hi).grid
-            full_corr, (qnx, qny) = correlate_translation_full(query_grid, map_grid)
+            full_corr, (qnx, qny) = correlate_translation_full_precomputed(query_grid, map_f, map_shape)
             slice_scores = reference_point_scores(full_corr, qnx, qny, ref_px, ref_px, nx, ny)
             per_slice.append(slice_scores)
             combined += w * slice_scores
