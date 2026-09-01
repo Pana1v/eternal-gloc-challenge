@@ -218,8 +218,13 @@ def main(argv=None):
         write_plots(stats_path, args.tiers, random_baseline)
 
     report_path = os.path.join(args.out_dir, "report.html")
+
+    # Figures need the map and every submission, so render_scenarios.py writes
+    # them separately; link them here whenever they are already on disk.
+    figures_dir = os.path.join(args.out_dir, "figures")
     report.main(["--results", args.out_dir, "--out", report_path,
                  *(["--tiers", args.tiers] if args.tiers else []),
+                 *(["--figures", figures_dir] if os.path.isdir(figures_dir) else []),
                  "--title", f"GLoc Eval - {args.split} Track {args.track}"])
 
     return result_dir

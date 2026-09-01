@@ -96,6 +96,7 @@ td.name,td.num{font-family:ui-monospace,Menlo,Consolas,monospace;
   font-variant-numeric:tabular-nums}
 td.desc{white-space:normal;text-align:left;font-size:12px;color:#333;max-width:60ch}
 tr.reference td{background:#f4f4f4;font-style:italic}
+td.name a{color:#00c;text-decoration:underline}
 .pass{color:#060;font-weight:600}
 .fail{color:#a00;font-weight:600}
 .scroll{overflow-x:auto}
@@ -172,10 +173,13 @@ def tier_table(runs):
     return head, body
 
 
-def casewise_table(runs, tiers):
+def casewise_table(runs, tiers, figures=None):
     """Scenario x baseline. Sorted by measured rack-level ambiguity when it is
     available, so any concentration of failures at the hard end is visible
-    rather than having to be looked for."""
+    rather than having to be looked for.
+
+    figures maps a scenario id to a relative href; those ids become links to
+    the rendered top-down figure so the table browses offline."""
     methods = sorted(runs)
     ids = sorted({sid for r in runs.values() for sid in r["rows"]})
 
@@ -188,7 +192,10 @@ def casewise_table(runs, tiers):
            [f"{method_identity(m)[0]}: e_t (m) / e_r (deg)" for m in methods]
     body = []
     for sid in ids:
-        cells = [f'<td class="name">{html.escape(sid)}</td>']
+        href = (figures or {}).get(sid)
+        name = (f'<a href="{html.escape(href)}">{html.escape(sid)}</a>' if href
+                else html.escape(sid))
+        cells = [f'<td class="name">{name}</td>']
         if tiers:
             t = tiers.get(sid, {})
             cells.append(f'<td class="num">{html.escape(t.get("tier", "-"))}</td>')
@@ -213,7 +220,7 @@ def table_html(head, body):
             f'<tbody>{"".join(body)}</tbody></table></div>')
 
 
-def render(runs, tiers, title):
+def render(runs, tiers, title, figures=None):
     any_summary = next(iter(runs.values()))["summary"]
     track = any_summary.get("track", "?")
     n = any_summary["overall"]["n_scenarios"]
@@ -239,10 +246,11 @@ def render(runs, tiers, title):
                         f'T2 &le; 3, T3 above). A non-monotonic ordering here means the tier labels '
                         f'are not tracking real difficulty.</p>')
 
-    sections.append(f'<h2>Casewise</h2>{table_html(*casewise_table(runs, tiers))}'
+    sections.append(f'<h2>Casewise</h2>{table_html(*casewise_table(runs, tiers, figures))}'
                     f'<p class="note">Per scenario: translation error in metres / rotation error in '
                     f'degrees. Green passes S-fine, red does not. '
-                    f'{"Ordered hardest-first by measured rack-level aliases." if tiers else ""}</p>')
+                    f'{"Ordered hardest-first by measured rack-level aliases. " if tiers else ""}'
+                    f'{"Scenario ids link to a rendered top-down figure." if figures else ""}</p>')
 
     return f"""<title>{html.escape(title)}</title>
 <style>{CSS}</style>
@@ -258,6 +266,8 @@ def main(argv=None):
     ap.add_argument("--out", help="output HTML (default: <results>/report.html)")
     ap.add_argument("--tiers", help="optional private tiers.csv for difficulty context")
     ap.add_argument("--title", default="GLoc Eval Report")
+    ap.add_argument("--figures", help="directory of per-scenario PNGs, linked from the "
+                                       "casewise table (resolved relative to the report)")
     args = ap.parse_args(argv)
 
     runs = load_runs(args.results)
@@ -266,8 +276,18 @@ def main(argv=None):
         return 1
 
     out = args.out or os.path.join(args.results, "report.html")
+
+    # Link only figures that exist, so a partial render degrades to plain text
+    # rather than to dead links.
+    figures = {}
+    if args.figures and os.path.isdir(args.figures):
+        rel = os.path.relpath(args.figures, os.path.dirname(os.path.abspath(out)))
+        for name in os.listdir(args.figures):
+            if name.endswith(".png"):
+                figures[name[:-4]] = os.path.join(rel, name)
+
     with open(out, "w") as f:
-        f.write(render(runs, load_tiers(args.tiers), args.title))
+        f.write(render(runs, load_tiers(args.tiers), args.title, figures))
     print(f"wrote {out} ({len(runs)} method{'s' if len(runs) != 1 else ''})")
     return 0
 
