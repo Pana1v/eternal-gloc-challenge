@@ -1,7 +1,7 @@
 # Eternal GLoc Challenge
 
-You wake up a warehouse AMR somewhere in a very large, deliberately
-repetitive warehouse and it has to figure out where it is. You get one 3D
+You wake up an AMR somewhere in a very large, deliberately
+repetitive environment and it has to figure out where it is. You get one 3D
 lidar scan and one camera image (or, in Track B, a short driven sequence),
 plus a prior 3D lidar map of the building. No GPS, no prior pose. The
 warehouse is built so that the rack level alone is nearly impossible to
