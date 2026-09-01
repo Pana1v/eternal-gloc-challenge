@@ -29,6 +29,7 @@ scored on both accuracy and how much of the budget you used.
 - [`docs/CHALLENGE.md`](docs/CHALLENGE.md): full problem statement, scenario formats, scoring formulas, submission format, grading rubric.
 - [`docs/RULES.md`](docs/RULES.md): what's allowed and what isn't.
 - [`docs/SENSORS.md`](docs/SENSORS.md): the exact rig spec (lidar + camera parameters, calibration format).
+- [`docs/BASELINES.md`](docs/BASELINES.md): what the four shipped baselines do, how they score on dev, and pictures of where they fail.
 
 ## Layout
 
