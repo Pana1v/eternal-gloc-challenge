@@ -25,31 +25,37 @@ TIER_FIELDS = ("tier", "ambiguity_lidar_full", "ambiguity_lidar_low")
 # one actually does keeps the comparison readable by someone who has not read
 # the baseline sources.
 METHODS = {
-    "bl_bbs": ("B1", "Multi-slice BEV correlative search",
-               "Rasterizes the scan and the prior map into five height bands, then searches "
-               "every (x, y, yaw) exhaustively by FFT cross-correlation, weighting the two "
-               "ceiling bands 2x. Refines the winning pose with point-to-plane ICP."),
-    "bl_retrieval_gicp": ("B2", "Polar-histogram retrieval",
-               "Builds a database of virtual scans sampled every 2 m from the prior map and "
-               "retrieves by a rotation-invariant ring key, recovering yaw by circular "
-               "cross-correlation and refining with ICP. Scales with database size rather "
-               "than map area."),
-    "bl_vpr_rerank": ("B3", "Camera edge re-ranking",
-               "Re-orders and re-weights another method's pose hypotheses by projecting the "
-               "prior map's geometry into the camera and scoring edge agreement against the "
-               "image. Cannot localize on its own."),
-    "bl_ga": ("B4", "Evolutionary pose search",
-               "Scatters a population of random SE(2) guesses, scores each by how much of the "
-               "scan it explains, and mutates the survivors over successive generations. Pays "
-               "only for the poses it samples, and submits its surviving modes as up to three "
-               "hypotheses."),
+    "bl_bbs": ("Multi-slice bird's-eye-view correlative search",
+               "Flattens the scan and the prior map into five horizontal height bands, then "
+               "searches every east/north/heading placement exhaustively by fast Fourier "
+               "transform cross-correlation, weighting the two ceiling bands twice as heavily. "
+               "Refines the winning placement with point-to-plane iterative closest point."),
+    "bl_retrieval_gicp": ("Polar-histogram retrieval with geometric refinement",
+               "Builds a database of candidate viewpoints sampled every 2 metres from the prior "
+               "map and retrieves by a rotation-invariant ring descriptor, recovering heading by "
+               "circular cross-correlation and refining with generalized iterative closest point. "
+               "Cost scales with database size rather than with map area."),
+    "bl_vpr_rerank": ("Camera edge re-ranking of another method's hypotheses",
+               "Re-orders and re-weights a pose hypothesis set produced elsewhere, by projecting "
+               "the prior map's geometry into the camera and scoring edge agreement against the "
+               "captured image. Cannot localize on its own, and cannot change anything when it "
+               "is handed a single hypothesis."),
+    "bl_ga": ("Evolutionary pose search",
+               "Scatters a population of random ground-plane guesses, scores each by how much of "
+               "the scan it explains, and mutates the survivors over successive generations. "
+               "Pays only for the placements it samples, and submits its surviving modes as up "
+               "to three hypotheses."),
 }
 
 
 def method_identity(method: str):
-    """(label, short name, description) for a submission's method name."""
-    tag, short, desc = METHODS.get(method, ("", "", ""))
-    return (f"{tag} {method}".strip(), short, desc)
+    """(label, full name, description) for a submission's method name.
+
+    The label carries the submission's own name so a row stays traceable to
+    the file that produced it; the full name spells the approach out.
+    """
+    name, desc = METHODS.get(method, ("", ""))
+    return (method, name, desc)
 
 
 def load_runs(results_dir: str):
@@ -124,19 +130,47 @@ footer{margin-top:28px;border-top:1px solid #999;padding-top:8px;
 """
 
 
+def identical_pairs(runs):
+    """Methods whose submitted poses are identical to another method's.
+
+    A re-ranker handed a single hypothesis per scenario cannot reorder or
+    reweight anything, so it silently returns its input and scores exactly
+    what it was given. That reads as an independent result in the table
+    unless it is called out, so detect it from the poses rather than
+    trusting the method name.
+    """
+    def key(run):
+        return tuple(sorted((sid, p["x"], p["y"], p["yaw"])
+                             for sid, p in run["poses"].items()))
+
+    seen, pairs = {}, {}
+    for method in sorted(runs):
+        if not runs[method]["poses"]:
+            continue
+        k = key(runs[method])
+        if k in seen:
+            pairs[method] = seen[k]
+        else:
+            seen[k] = method
+    return pairs
+
+
 def summary_table(runs):
     """Baseline-wise: one row per method, random guess as a reference row."""
     head = ["method", "approach", "score", "SR@fine", "SR@coarse", "oracle@fine",
             "mean loss", "missing", "sec/scenario", "peak RSS (MB)"]
     body = []
     reference = None
+    duplicates = identical_pairs(runs)
     for method, run in sorted(runs.items(), key=lambda kv: -kv[1]["summary"]["overall"]["score"]):
         o = run["summary"]["overall"]
         c = run["summary"].get("compute") or {}
         label, short, _ = method_identity(method)
+        note = (f" (identical output to {duplicates[method]}, so it changed nothing)"
+                if method in duplicates else "")
         body.append(
             f'<tr><td class="name">{html.escape(label)}</td>'
-            f'<td class="desc">{html.escape(short)}</td>'
+            f'<td class="desc">{html.escape(short + note)}</td>'
             f'<td class="num">{fnum(o["score"])}</td>'
             f'<td class="num">{fnum(o["sr_fine"], 3)}</td>'
             f'<td class="num">{fnum(o["sr_coarse"], 3)}</td>'
@@ -167,7 +201,7 @@ def method_glossary(runs):
         label, short, desc = method_identity(method)
         if not desc:
             continue
-        items.append(f"<dt>{html.escape(label)} &mdash; {html.escape(short)}</dt>"
+        items.append(f"<dt>{html.escape(label)}: {html.escape(short)}</dt>"
                       f"<dd>{html.escape(desc)}</dd>")
     return f"<dl>{''.join(items)}</dl>" if items else ""
 
