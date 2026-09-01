@@ -145,6 +145,31 @@ def print_compute(compute):
     print("compute (independent KPI): " + (", ".join(parts) if parts else "n/a"))
 
 
+def write_poses_csv(gt, submissions, path):
+    """The x/y/yaw of the truth and of the primary hypothesis, per scenario.
+
+    stats.csv carries errors but not positions, and the report's map viewer
+    needs somewhere to draw. Written here because this is the only stage that
+    already holds both the ground truth and the submission.
+    """
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["scenario_id", "gt_x", "gt_y", "gt_yaw", "x", "y", "yaw"])
+
+        for scenario_id in sorted(gt):
+            hyps = submissions.get(scenario_id)
+            if not hyps:
+                continue
+
+            g = gt[scenario_id]
+            T = min(hyps, key=lambda h: h.k).T
+            writer.writerow([
+                scenario_id,
+                f"{g[0, 3]:.3f}", f"{g[1, 3]:.3f}", f"{math.atan2(g[1, 0], g[0, 0]):.5f}",
+                f"{T[0, 3]:.3f}", f"{T[1, 3]:.3f}", f"{math.atan2(T[1, 0], T[0, 0]):.5f}",
+            ])
+
+
 def write_plots(stats_path: str, tiers_path, random_baseline):
     """Renders the plots into the result directory alongside stats.csv."""
     if plot_results is None:
@@ -171,6 +196,7 @@ def main(argv=None):
     parser.add_argument("--random-trials", type=int, default=RANDOM_TRIALS,
                          help="random-guess reference draws per scenario; 0 disables")
     parser.add_argument("--no-plots", action="store_true", help="skip rendering plots")
+    parser.add_argument("--map", help="prior map; enables the report's scenario map viewer")
     args = parser.parse_args(argv)
 
     if args.method is None:
@@ -199,6 +225,7 @@ def main(argv=None):
 
     stats_path = os.path.join(result_dir, "stats.csv")
     write_stats_csv(scores, stats_path)
+    write_poses_csv(gt, submissions, os.path.join(result_dir, "poses.csv"))
     write_summary_json(os.path.join(result_dir, "summary.json"), args.track, overall, per_tier,
                         args, random_baseline, compute)
 
@@ -216,6 +243,10 @@ def main(argv=None):
 
     if not args.no_plots:
         write_plots(stats_path, args.tiers, random_baseline)
+
+    if args.map:
+        import map_svg
+        map_svg.build_map_render(args.map, os.path.join(args.out_dir, "map_render.json"))
 
     report_path = os.path.join(args.out_dir, "report.html")
 

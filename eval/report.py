@@ -63,8 +63,13 @@ def load_runs(results_dir: str):
             continue
         with open(stats_path) as f:
             rows = {r["scenario_id"]: r for r in csv.DictReader(f)}
+        poses_path = os.path.join(os.path.dirname(summary_path), "poses.csv")
+        poses = {}
+        if os.path.exists(poses_path):
+            with open(poses_path) as f:
+                poses = {r["scenario_id"]: r for r in csv.DictReader(f)}
         method = summary.get("run", {}).get("method") or os.path.basename(os.path.dirname(summary_path))
-        runs[method] = {"summary": summary, "rows": rows}   # later run wins
+        runs[method] = {"summary": summary, "rows": rows, "poses": poses}   # later run wins
     return runs
 
 
@@ -97,6 +102,17 @@ td.name,td.num{font-family:ui-monospace,Menlo,Consolas,monospace;
 td.desc{white-space:normal;text-align:left;font-size:12px;color:#333;max-width:60ch}
 tr.reference td{background:#f4f4f4;font-style:italic}
 td.name a{color:#00c;text-decoration:underline}
+.viewer{display:flex;gap:14px;margin-top:8px;align-items:flex-start}
+.viewer select{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
+  padding:2px;border:1px solid #999;min-width:150px}
+.viewer .pane{flex:1;min-width:0}
+.viewer svg{width:100%;height:auto;border:1px solid #999;background:#fff;display:block}
+.legend{font-size:12px;color:#333;margin-bottom:5px}
+.legend .key{margin-right:12px;white-space:nowrap}
+.legend i{display:inline-block;width:10px;height:10px;margin-right:4px;
+  vertical-align:-1px;border:1px solid #666}
+.legend i.rack{background:#8a8a8a}
+.legend i.high{background:#b03030}
 .pass{color:#060;font-weight:600}
 .fail{color:#a00;font-weight:600}
 .scroll{overflow-x:auto}
@@ -212,6 +228,123 @@ def casewise_table(runs, tiers, figures=None):
     return head, body
 
 
+# One colour per method, reused by the legend and the pose markers.
+VIEWER_COLORS = ["#d55e00", "#0072b2", "#009e73", "#cc79a7", "#e69f00"]
+
+
+def viewer_section(runs, tiers, map_render):
+    """A vector map with the truth and every method's pose, per scenario.
+
+    Everything is inline SVG rather than rendered images: the map background
+    is one shared path reused by all scenarios, so the whole browser costs a
+    few tens of KB and stays crisp at any zoom. Selecting a scenario only
+    moves a handful of markers, which keeps it responsive with no library.
+    """
+    if not map_render:
+        return ""
+
+    methods = sorted(runs)
+    colors = {m: VIEWER_COLORS[i % len(VIEWER_COLORS)] for i, m in enumerate(methods)}
+
+    # {scenario: {gt: [x,y,yaw], m: {method: [x,y,yaw,e_t,e_r,pass]}}}
+    data = {}
+    for method in methods:
+        for sid, pose in runs[method]["poses"].items():
+            entry = data.setdefault(sid, {"gt": [float(pose["gt_x"]), float(pose["gt_y"]),
+                                                  float(pose["gt_yaw"])], "m": {}})
+            row = runs[method]["rows"].get(sid, {})
+            entry["m"][method] = [float(pose["x"]), float(pose["y"]), float(pose["yaw"]),
+                                   float(row.get("e_t", 0)), float(row.get("e_r", 0)),
+                                   int(row.get("sr_fine", 0) == "1")]
+    if not data:
+        return ""
+
+    meta = {sid: [tiers.get(sid, {}).get("tier", "-"),
+                   tiers.get(sid, {}).get("ambiguity_lidar_low", "-")] for sid in data}
+
+    legend = " ".join(
+        f'<span class="key"><i style="background:{colors[m]}"></i>{html.escape(method_identity(m)[0])}</span>'
+        for m in methods)
+
+    payload = json.dumps({"map": map_render, "data": data, "meta": meta,
+                           "colors": colors}, separators=(",", ":"))
+
+    return f'''<h2>Scenario map</h2>
+<div class="viewer">
+  <select id="pick" size="20"></select>
+  <div class="pane">
+    <div class="legend"><span class="key"><i style="background:#111"></i>truth</span> {legend}
+      <span class="key"><i class="rack"></i>racking</span>
+      <span class="key"><i class="high"></i>columns, walls, landmarks</span></div>
+    <svg id="map" xmlns="http://www.w3.org/2000/svg"><g id="scene">
+      <rect id="bg" fill="#fff"/>
+      <path id="rack" fill="#8a8a8a"/><path id="high" fill="#b03030"/>
+      <g id="poses"></g>
+    </g></svg>
+    <div id="facts" class="note"></div>
+  </div>
+</div>
+<script>
+const V = {payload};
+const M = V.map, S = document.getElementById("scene"), SVG = document.getElementById("map");
+const W = M.nx, H = M.ny;
+SVG.setAttribute("viewBox", `0 0 ${{W}} ${{H}}`);
+document.getElementById("bg").setAttribute("width", W);
+document.getElementById("bg").setAttribute("height", H);
+document.getElementById("rack").setAttribute("d", M.rack_path);
+document.getElementById("high").setAttribute("d", M.high_path);
+// SVG y grows downward, the world's grows up: flip once, here.
+S.setAttribute("transform", `translate(0,${{H}}) scale(1,-1)`);
+
+// world metres -> grid units, the same mapping map_svg.py rasterized with
+const gx = x => (x - M.x0) / M.cell_m, gy = y => (y - M.y0) / M.cell_m;
+const ARROW = 5.0 / M.cell_m;
+
+function marker(x, y, yaw, color, r) {{
+  const cx = gx(x), cy = gy(y);
+  return `<line x1="${{cx}}" y1="${{cy}}" x2="${{cx + ARROW * Math.cos(yaw)}}" `
+       + `y2="${{cy + ARROW * Math.sin(yaw)}}" stroke="${{color}}" stroke-width="1.1"/>`
+       + `<circle cx="${{cx}}" cy="${{cy}}" r="${{r}}" fill="${{color}}" `
+       + `stroke="#fff" stroke-width="0.5"/>`;
+}}
+
+function show(sid) {{
+  const d = V.data[sid]; if (!d) return;
+  let svg = "", facts = [];
+  for (const [m, p] of Object.entries(d.m)) {{
+    // A line from truth to estimate makes a gross miss legible at map scale,
+    // where the two markers would otherwise just be far apart with no link.
+    svg += `<line x1="${{gx(d.gt[0])}}" y1="${{gy(d.gt[1])}}" x2="${{gx(p[0])}}" y2="${{gy(p[1])}}" `
+         + `stroke="${{V.colors[m]}}" stroke-width="0.6" stroke-dasharray="2 2" opacity="0.8"/>`;
+    svg += marker(p[0], p[1], p[2], V.colors[m], 2.2);
+    facts.push(`<b style="color:${{V.colors[m]}}">${{m}}</b> ${{p[3].toFixed(2)}} m / `
+             + `${{p[4].toFixed(1)}}&deg; ${{p[5] ? "&#10003;" : "&#10007;"}}`);
+  }}
+  svg += marker(d.gt[0], d.gt[1], d.gt[2], "#111", 2.6);
+  document.getElementById("poses").innerHTML = svg;
+  const md = V.meta[sid] || ["-", "-"];
+  document.getElementById("facts").innerHTML =
+    `<b>${{sid}}</b> &middot; tier ${{md[0]}} &middot; ${{md[1]}} aliases &middot; ` + facts.join(" &middot; ");
+}}
+
+const pick = document.getElementById("pick");
+// Worst case first: the interesting scenarios are the ones somebody missed.
+Object.keys(V.data).sort((a, b) => {{
+  const w = s => Math.max(...Object.values(V.data[s].m).map(p => p[3]));
+  return w(b) - w(a) || a.localeCompare(b);
+}}).forEach(sid => {{
+  const miss = Object.values(V.data[sid].m).filter(p => !p[5]).length;
+  const o = document.createElement("option");
+  o.value = sid;
+  o.textContent = sid + (miss ? `  (${{miss}} missed)` : "");
+  if (miss) o.style.color = "#a00";
+  pick.appendChild(o);
+}});
+pick.addEventListener("change", () => show(pick.value));
+pick.selectedIndex = 0; show(pick.value);
+</script>'''
+
+
 def table_html(head, body):
     if not head:
         return ""
@@ -220,7 +353,7 @@ def table_html(head, body):
             f'<tbody>{"".join(body)}</tbody></table></div>')
 
 
-def render(runs, tiers, title, figures=None):
+def render(runs, tiers, title, figures=None, map_render=None):
     any_summary = next(iter(runs.values()))["summary"]
     track = any_summary.get("track", "?")
     n = any_summary["overall"]["n_scenarios"]
@@ -248,6 +381,8 @@ def render(runs, tiers, title, figures=None):
                         f'T2 &le; 3, T3 above). A non-monotonic ordering here means the tier labels '
                         f'are not tracking real difficulty.</p>')
 
+    sections.append(viewer_section(runs, tiers, map_render))
+
     sections.append(f'<h2>Casewise</h2>{table_html(*casewise_table(runs, tiers, figures))}'
                     f'<p class="note">Per scenario: translation error in metres / rotation error in '
                     f'degrees. Green passes S-fine, red does not. '
@@ -268,6 +403,8 @@ def main(argv=None):
     ap.add_argument("--out", help="output HTML (default: <results>/report.html)")
     ap.add_argument("--tiers", help="optional private tiers.csv for difficulty context")
     ap.add_argument("--title", default="GLoc Eval Report")
+    ap.add_argument("--map-render", help="map_render.json for the scenario viewer "
+                                         "(default: <results>/map_render.json)")
     ap.add_argument("--figures", help="directory of per-scenario PNGs, linked from the "
                                        "casewise table (resolved relative to the report)")
     args = ap.parse_args(argv)
@@ -288,8 +425,14 @@ def main(argv=None):
             if name.endswith(".png"):
                 figures[name[:-4]] = os.path.join(rel, name)
 
+    map_render = None
+    map_path = args.map_render or os.path.join(args.results, "map_render.json")
+    if os.path.exists(map_path):
+        with open(map_path) as f:
+            map_render = json.load(f)
+
     with open(out, "w") as f:
-        f.write(render(runs, load_tiers(args.tiers), args.title, figures))
+        f.write(render(runs, load_tiers(args.tiers), args.title, figures, map_render))
     print(f"wrote {out} ({len(runs)} method{'s' if len(runs) != 1 else ''})")
     return 0
 
