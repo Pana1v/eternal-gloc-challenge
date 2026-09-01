@@ -17,6 +17,7 @@ evolve = _run.evolve
 hypothesis_weights = _run.hypothesis_weights
 mutate = _run.mutate
 random_population = _run.random_population
+confident_subset = _run.confident_subset
 SENSOR_HEIGHT_M = _run.SENSOR_HEIGHT_M
 
 
@@ -98,3 +99,28 @@ def test_evolve_finds_a_known_pose():
     best = poses[np.argmax(fitness)]
     assert np.hypot(best[0] - 12.0, best[1] - 8.0) < 1.0
     assert fitness.max() > 0.8
+
+
+def test_confident_subset_commits_when_one_pose_clearly_wins():
+    """A dominant winner must not share weight with also-rans: hedging is only
+    scored favourably when the alternates are genuinely competitive."""
+    poses = np.array([[0.0, 0.0, 0.0], [9.0, 9.0, 0.0], [20.0, 20.0, 0.0]])
+    kept, kept_fit = confident_subset(poses, np.array([1.0, 0.33, 0.30]), 0.98)
+    assert len(kept) == 1 and np.allclose(kept[0][:2], [0.0, 0.0])
+
+    # genuinely ambiguous aliases must still all survive
+    kept, kept_fit = confident_subset(poses, np.array([1.0, 0.995, 0.99]), 0.98)
+    assert len(kept) == 3
+
+    # all-zero fitness must not crash or drop everything
+    kept, _ = confident_subset(poses, np.array([0.0, 0.0, 0.0]), 0.98)
+    assert len(kept) == 3
+
+
+def test_written_weights_never_exceed_one():
+    """Regression: three fitnesses normalizing to exactly 1.0 used to round up
+    to 1.0001 at the writer's %.4f, which the scorer rejects as malformed."""
+    for fitness in ([1.0, 0.4413, 0.4045], [1.0, 1.0, 1.0], [0.7, 0.2, 0.1], [1.0],
+                     [0.3841, 0.3839, 0.3655]):
+        written = sum(float("%.4f" % w) for w in hypothesis_weights(fitness))
+        assert written <= 1.0, f"{fitness} -> {written}"

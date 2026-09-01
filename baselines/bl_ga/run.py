@@ -33,6 +33,8 @@ INLIER_DIST_M = 0.5
 SCAN_SAMPLE = 500        # scan points per fitness evaluation
 N_HYPOTHESES = 3
 HYPOTHESIS_MIN_SEP_M = 1.0   # below this two hypotheses are the same answer twice
+HYPOTHESIS_KEEP_RATIO = 0.98  # an alternate must fit nearly as well as the best to earn weight
+WEIGHT_DECIMALS = 4          # SubmissionWriter formats weights as %.4f
 ICP_CROP_RADIUS_M = 5.0
 SENSOR_HEIGHT_M = 1.0    # fixed rig height (docs/SENSORS.md), as in bl_bbs/bl_retrieval_gicp
 DEFAULT_SEED = 0
@@ -89,6 +91,21 @@ def distinct_top(poses: np.ndarray, fitness: np.ndarray, n: int, min_sep: float)
     return poses[picked], fitness[picked]
 
 
+def confident_subset(poses: np.ndarray, fitness: np.ndarray, keep_ratio: float):
+    """Drops alternates that fit clearly worse than the best.
+
+    The loss pays for probability mass placed on good poses, so a hedge only
+    earns its keep across genuinely competing aliases. Spreading weight onto
+    also-rans the search already ranked far below the winner is a straight
+    loss: measured at 34 points on the dev warehouse, where the discarded
+    hypotheses never once held the answer the primary missed.
+    """
+    if len(fitness) == 0:
+        return poses, fitness
+    keep = fitness >= keep_ratio * fitness.max()
+    return poses[keep], fitness[keep]
+
+
 def evolve(scan: np.ndarray, tree: cKDTree, bounds, rng,
             population: int = POPULATION, generations: int = GENERATIONS):
     """Runs the search and returns (poses, fitness) for the final population."""
@@ -120,6 +137,7 @@ def run_scenario(scenario_dir: str, map_points: np.ndarray, tree: cKDTree, bound
 
     poses, fitness = evolve(sample, tree, bounds, rng)
     top_poses, top_fitness = distinct_top(poses, fitness, N_HYPOTHESES, HYPOTHESIS_MIN_SEP_M)
+    top_poses, top_fitness = confident_subset(top_poses, top_fitness, HYPOTHESIS_KEEP_RATIO)
 
     refined = []
     for (x, y, yaw), fit in zip(top_poses, top_fitness):
@@ -135,9 +153,17 @@ def hypothesis_weights(fitness) -> np.ndarray:
     """Fitness shares, normalized to sum to 1. Unassigned weight is scored as
     a full-loss miss, so there is never a reason to hold mass back."""
     fitness = np.asarray(fitness, dtype=np.float64)
-    if fitness.sum() <= 0:
-        return np.full(len(fitness), 1.0 / len(fitness))
-    return fitness / fitness.sum()
+    weights = (np.full(len(fitness), 1.0 / len(fitness)) if fitness.sum() <= 0
+                else fitness / fitness.sum())
+
+    # the writer rounds each weight to WEIGHT_DECIMALS, and rounding a set that
+    # sums to exactly 1 can total 1.0001, which the scorer rejects outright as
+    # a malformed submission: settle the rounding here and hand the excess back
+    weights = np.round(weights, WEIGHT_DECIMALS)
+    excess = weights.sum() - 1.0
+    if excess > 0:
+        weights[np.argmax(weights)] -= excess
+    return weights
 
 
 def main():
@@ -182,7 +208,8 @@ def main():
         "immigrants": IMMIGRANTS, "sigma_xy_m": SIGMA_XY_M, "sigma_yaw_deg": SIGMA_YAW_DEG,
         "sigma_decay": SIGMA_DECAY, "inlier_dist_m": INLIER_DIST_M,
         "scan_sample": SCAN_SAMPLE, "seed": args.seed,
-    })
+        "hypothesis_keep_ratio": HYPOTHESIS_KEEP_RATIO,
+    }, n_scenarios=len(scenario_ids))
     print(f"wrote {args.out} ({len(scenario_ids)} scenarios)")
 
 

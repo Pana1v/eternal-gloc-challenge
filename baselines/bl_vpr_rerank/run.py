@@ -30,6 +30,7 @@ from projection import (
 from edge_score import image_edge_map, projected_edge_map, score_edge_agreement
 
 MAP_CROP_RADIUS_M = 30.0
+WEIGHT_DECIMALS = 4          # SubmissionWriter formats weights as %.4f
 
 
 def parse_hypotheses(path: str):
@@ -100,6 +101,14 @@ def rerank_scenario(scenario_dir: str, map_points: np.ndarray, hypotheses: list)
         weights = scores / scores.sum()
     else:
         weights = np.full(len(scores), 1.0 / len(scores))
+
+    # the writer rounds each weight to WEIGHT_DECIMALS, and rounding a set that
+    # sums to exactly 1 can total 1.0001, which the scorer rejects outright as
+    # a malformed submission: settle the rounding here and hand the excess back
+    weights = np.round(weights, WEIGHT_DECIMALS)
+    excess = weights.sum() - 1.0
+    if excess > 0:
+        weights[np.argmax(weights)] -= excess
     return scored, weights
 
 

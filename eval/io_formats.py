@@ -69,18 +69,52 @@ def load_submission(path: str, track: str) -> dict:
     return dict(grouped)
 
 
-def load_tiers(path: str) -> dict:
-    """Optional private tier lookup CSV: scenario_id,tier"""
+def load_tiers(path: str, track: str = None) -> dict:
+    """Optional private tier lookup CSV: scenario_id,tier (+ optional track).
+
+    Scenario ids restart from 000000 in each track, so a file covering both
+    tracks has colliding ids: without filtering, the rows read last silently
+    overwrite the others and scenarios are reported under the wrong tier.
+    When the file carries a `track` column, pass the track being scored.
+    """
     tiers = {}
     with open(path) as f:
         header = f.readline()
         cols = [c.strip() for c in header.strip().split(",")]
         id_idx = cols.index("scenario_id")
         tier_idx = cols.index("tier")
+        track_idx = cols.index("track") if "track" in cols else None
+
         for line in f:
             line = line.strip()
             if not line:
                 continue
             parts = line.split(",")
+            if track is not None and track_idx is not None and parts[track_idx] != track:
+                continue
             tiers[parts[id_idx]] = parts[tier_idx]
     return tiers
+
+
+def load_compute_meta(submission_path: str):
+    """Reads the `<submission>.meta.json` sidecar a baseline writes next to its
+    submission. Returns None when there is none: compute is an optional,
+    self-declared KPI and its absence must never fail a scoring run.
+    """
+    import json
+    import os
+
+    path = submission_path + ".meta.json"
+    if not os.path.exists(path):
+        return None
+
+    with open(path) as f:
+        meta = json.load(f)
+
+    return {
+        "runtime_sec_total": meta.get("runtime_sec_total"),
+        "runtime_sec_per_scenario": meta.get("runtime_sec_per_scenario"),
+        "peak_rss_mb": meta.get("peak_rss_mb"),
+        "method_name": meta.get("method_name"),
+        "machine": meta.get("machine"),
+    }

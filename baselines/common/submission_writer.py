@@ -36,12 +36,29 @@ class SubmissionWriter:
                 f.write(line + "\n")
 
 
-def write_submission_meta(out_path: str, method_name: str, runtime_sec_total: float, params: dict):
+def peak_rss_mb() -> float:
+    """Peak resident set size of this process. ru_maxrss is kilobytes on Linux
+    but bytes on macOS, so the unit has to be branched on, not assumed."""
+    import resource
+    import sys
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / (1024 * 1024) if sys.platform == "darwin" else peak / 1024
+
+
+def write_submission_meta(out_path: str, method_name: str, runtime_sec_total: float, params: dict,
+                           n_scenarios: int):
+    """Records what the scorer cannot measure for itself: it only ever reads a
+    text file, so compute cost has to be declared by whoever produced it.
+    Reported as an independent KPI, never folded into the headline score.
+    """
     import platform
     with open(out_path, "w") as f:
         json.dump({
             "method_name": method_name,
             "runtime_sec_total": runtime_sec_total,
+            "n_scenarios": n_scenarios,
+            "runtime_sec_per_scenario": runtime_sec_total / n_scenarios if n_scenarios else None,
+            "peak_rss_mb": peak_rss_mb(),
             "machine": {"cpu": platform.processor() or platform.machine(), "platform": platform.platform()},
             "params": params,
         }, f, indent=2)

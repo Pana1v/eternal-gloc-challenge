@@ -128,7 +128,7 @@ def main():
         x, y, yaw, fitness = run_scenario(scan, map_points, map_points_xy, db_positions, db_keys)
         elapsed = time.time() - t0
 
-        T = pose_matrix_from_xy_yaw(x + x_min, y + y_min, yaw)
+        T = pose_matrix_from_xy_yaw(x + x_min, y + y_min, yaw, z=SENSOR_HEIGHT_M)
         writer.add(scenario_id, T, weight=1.0, k=0)
         print(f"{scenario_id}: pose=({x + x_min:.2f}, {y + y_min:.2f}, yaw={np.degrees(yaw):.1f}deg) "
               f"icp_fitness={fitness:.2f} ({elapsed:.2f}s)")
@@ -138,6 +138,7 @@ def main():
         args.out + ".meta.json", method_name="bl_retrieval_gicp", runtime_sec_total=time.time() - t_start,
         params={"db_spacing_m": DB_SPACING_M, "max_radius_m": MAX_RADIUS_M, "top_k": TOP_K,
                 "n_angle_bins": N_ANGLE_BINS, "n_radius_bins": N_RADIUS_BINS},
+        n_scenarios=len(scenario_ids),
     )
     print(f"wrote {args.out} ({len(scenario_ids)} scenarios)")
 
