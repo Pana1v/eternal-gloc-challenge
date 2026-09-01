@@ -23,7 +23,7 @@ from metrics import (
     LOSS_TRANS_WEIGHT, LOSS_ROT_WEIGHT, LOSS_TRANS_CAP_M, LOSS_ROT_CAP_DEG,
     TRACK_B_LOSS_WEIGHT, TRACK_B_BUDGET_WEIGHT, TRACK_B_MAX_STEPS, MAX_HYPOTHESES,
 )
-from io_formats import load_gt, load_submission, load_tiers
+from io_formats import load_gt, load_submission, load_tiers, load_compute_meta
 
 # plotting is optional: matplotlib is present in the runtime image but a bare
 # scoring environment may not have it, and a missing plot must not fail a run
@@ -31,6 +31,10 @@ try:
     import plot_results
 except ImportError:
     plot_results = None
+
+# the HTML report is regenerated after every scoring run, so it always covers
+# every method scored into --out-dir so far, not just this one
+import report
 
 
 def score_all(gt: dict, submissions: dict, track: str):
@@ -90,12 +94,16 @@ def write_stats_csv(scores, out_path: str):
 
 
 def write_summary_json(out_path: str, track: str, overall: dict, per_tier: dict, args,
-                        random_baseline=None):
+                        random_baseline=None, compute=None):
     summary = {
         "generated_at": datetime.now().isoformat(),
         "track": track,
         "overall": overall["overall"],
         "random_baseline": random_baseline,
+        # reported alongside the score, never folded into it: this figure is
+        # self-declared by the submitting method, so ranking on it would be
+        # trivially gameable
+        "compute": compute,
         "margin_over_random": (None if random_baseline is None
                                 else overall["overall"]["score"] - random_baseline["score"]),
         "per_tier": per_tier,
@@ -116,6 +124,25 @@ def write_summary_json(out_path: str, track: str, overall: dict, per_tier: dict,
     }
     with open(out_path, "w") as f:
         json.dump(summary, f, indent=2)
+
+
+def print_compute(compute):
+    """Compute cost is an independent KPI: reported next to the score, never
+    part of it. A method that wins on accuracy while costing 100x the compute
+    should be visibly doing so, not silently penalized.
+    """
+    if compute is None:
+        print("compute: n/a (no <submission>.meta.json sidecar)")
+        return
+
+    parts = []
+    if compute["runtime_sec_total"] is not None:
+        parts.append(f"{compute['runtime_sec_total']:.1f}s total")
+    if compute["runtime_sec_per_scenario"] is not None:
+        parts.append(f"{compute['runtime_sec_per_scenario']:.2f}s/scenario")
+    if compute["peak_rss_mb"] is not None:
+        parts.append(f"{compute['peak_rss_mb']:.0f} MB peak RSS")
+    print("compute (independent KPI): " + (", ".join(parts) if parts else "n/a"))
 
 
 def write_plots(stats_path: str, tiers_path, random_baseline):
@@ -154,10 +181,12 @@ def main(argv=None):
     scores = score_all(gt, submissions, args.track)
 
     overall = aggregate(scores)
-    tiers = load_tiers(args.tiers) if args.tiers else {}
+    tiers = load_tiers(args.tiers, args.track) if args.tiers else {}
     per_tier = {}
     if tiers:
         per_tier = aggregate(scores, group_key=lambda sid: tiers.get(sid, "unknown"))
+
+    compute = load_compute_meta(args.submission)
 
     random_baseline = None
     if args.random_trials > 0:
@@ -171,7 +200,7 @@ def main(argv=None):
     stats_path = os.path.join(result_dir, "stats.csv")
     write_stats_csv(scores, stats_path)
     write_summary_json(os.path.join(result_dir, "summary.json"), args.track, overall, per_tier,
-                        args, random_baseline)
+                        args, random_baseline, compute)
 
     print(f"scored {len(scores)} scenarios ({overall['overall']['n_missing']} missing)")
     print(f"headline score: {overall['overall']['score']:.2f}")
@@ -181,11 +210,17 @@ def main(argv=None):
     elif args.random_trials > 0:
         print("random baseline: n/a (ground truth extent too small to sample)")
     print(f"SR@fine: {overall['overall']['sr_fine']:.3f}  SR@coarse: {overall['overall']['sr_coarse']:.3f}")
+    print_compute(compute)
     print(f"wrote {stats_path}")
     print(f"wrote {result_dir}/summary.json")
 
     if not args.no_plots:
         write_plots(stats_path, args.tiers, random_baseline)
+
+    report_path = os.path.join(args.out_dir, "report.html")
+    report.main(["--results", args.out_dir, "--out", report_path,
+                 *(["--tiers", args.tiers] if args.tiers else []),
+                 "--title", f"GLoc Eval - {args.split} Track {args.track}"])
 
     return result_dir
 
