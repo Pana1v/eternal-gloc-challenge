@@ -390,6 +390,8 @@ SOLID_OCCUPANCY = 0.9
 SHELL_COLOR = "#d2d2d2"
 BAND_DONE_COLOR = "#a9cfe8"   # bands already folded in, kept behind the one sweeping now
 SHELL_STRUCTURE_COLOR = "#e6d2d2"
+# The sensor's own limit, so neither method's colour: it constrains both of them equally.
+RANGE_COLOR = "#7f7f7f"
 
 
 def _clip(segments, z_lo: float, z_hi: float):
@@ -430,6 +432,7 @@ def _setup(ax, top: bool = False):
     ax.set_zticks([])
     for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
         axis.pane.set_alpha(0.0)
+        axis.line.set_visible(False)   # a bare axis line with no ticks reads as an artefact
     ax.grid(False)
 
 
@@ -459,18 +462,48 @@ def _pose(ax, x, y, yaw, color, size, marker="*", filled=True):
             color=color, linewidth=1.0, zorder=12)
 
 
+def _range_ring(x: float, y: float):
+    """The sensor's maximum range as segments, clipped to the hall.
+
+    Drawn from the true pose because that is where the scan was taken: nothing outside this
+    circle is in the scan at all, so the hall's far end is evidence neither search can use.
+    Clipped rather than drawn whole, since mplot3d does not clip to the axes limits and the
+    ring is wider than the hall in y.
+    """
+    theta = np.linspace(0.0, 2 * np.pi, 361)
+    rx = x + LIDAR_RANGE_M[1] * np.cos(theta)
+    ry = y + LIDAR_RANGE_M[1] * np.sin(theta)
+    inside = (rx >= 0.0) & (rx <= LENGTH_M) & (ry >= 0.0) & (ry <= WIDTH_M)
+    z = bl_ga.SENSOR_HEIGHT_M
+    return [[(rx[i], ry[i], z), (rx[i + 1], ry[i + 1], z)]
+            for i in range(len(theta) - 1) if inside[i] and inside[i + 1]]
+
+
 def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = FPS,
                 hold: int = HOLD_FRAMES):
-    """One GIF, one clock, four axes: bl_ga's population top-down and in perspective on the
-    top row, bl_bbs's band sweep the same way underneath. Every panel is rebuilt per frame
-    rather than tracked as artists: mplot3d has no usable blitting, and at 60 frames the
-    redraw is not the cost. No panel carries text; colour and layout alone say what is what,
-    top row bl_ga's colour, bottom row bl_bbs's, left column plan view, right column height."""
+    """One GIF, one clock, four axes: one method per column, each shown top-down above and in
+    perspective below. Every panel is rebuilt per frame rather than tracked as artists:
+    mplot3d has no usable blitting, and at 60 frames the redraw is not the cost. The only
+    text is the two method names and the shared clock; everything else is geometry, motion
+    and colour, so each column is named once and read by colour after that."""
+    # mplot3d draws into a square viewport inside its axes, so a wide, short cell renders a
+    # small plan view with dead space either side and raising `zoom` clips rather than fills.
+    # Same fix the two-panel version used: give each axes far more height than its row needs
+    # and let the empty part of the square overflow into the neighbouring row, which is
+    # transparent. The panels overlap; their ink does not.
     fig = plt.figure(figsize=(10.0, 8.0))
-    ax_ga_top = fig.add_axes((0.005, 0.505, 0.49, 0.475), projection="3d")
-    ax_ga_persp = fig.add_axes((0.505, 0.505, 0.49, 0.475), projection="3d")
-    ax_bbs_top = fig.add_axes((0.005, 0.020, 0.49, 0.475), projection="3d")
-    ax_bbs_persp = fig.add_axes((0.505, 0.020, 0.49, 0.475), projection="3d")
+    ax_ga_top = fig.add_axes((0.005, 0.444, 0.49, 0.6125), projection="3d")
+    ax_bbs_top = fig.add_axes((0.505, 0.444, 0.49, 0.6125), projection="3d")
+    ax_ga_persp = fig.add_axes((0.005, -0.010, 0.49, 0.600), projection="3d")
+    ax_bbs_persp = fig.add_axes((0.505, -0.010, 0.49, 0.600), projection="3d")
+
+    fig.text(0.25, 0.985, "Genetic Evolution", ha="center", va="top", fontsize=11,
+             color=GA_COLOR)
+    fig.text(0.75, 0.985, "Fast Fourier Transform", ha="center", va="top", fontsize=11,
+             color=BBS_COLOR)
+    # One clock for both columns, scaled to the measured sec/scenario, so the frame where
+    # bl_bbs stops and bl_ga keeps going is legible as a time rather than inferred.
+    clock = fig.text(0.5, 0.008, "", ha="center", va="bottom", fontsize=9, color="#444444")
 
     history = ga["history"]
     tx, ty, tyaw = TRUE_POSE
@@ -480,6 +513,7 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
     per_band = [_clip(render["racks"], lo, hi) + _clip(render["structure"], lo, hi)
                 for lo, hi in bands]
     below_band = [sum(per_band[:k], []) for k in range(len(bands))]
+    range_ring = _range_ring(tx, ty)
 
     def draw(frame):
         verdict = frame >= frames
@@ -487,6 +521,7 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         elapsed = t * GA_SEC
         gen = min(int(round(t * (len(history) - 1))), len(history) - 1)
         band = max(1, min(int(np.ceil(min(1.0, elapsed / BBS_SEC) * len(bands))), len(bands)))
+        clock.set_text(f"{elapsed:.2f} s")
 
         for ax in (ax_ga_top, ax_ga_persp, ax_bbs_top, ax_bbs_persp):
             ax.clear()
@@ -501,6 +536,8 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         for ax, top in ((ax_ga_top, True), (ax_ga_persp, False)):
             _setup(ax, top=top)
             _shell(ax, render)
+            ax.add_collection3d(Line3DCollection(range_ring, colors=RANGE_COLOR,
+                                                 linewidths=0.8, linestyles=(0, (4, 3))))
             ax.scatter(poses[:, 0], poses[:, 1], floor, s=5.0, c=GA_COLOR,
                        depthshade=False, linewidths=0)
             ax.scatter(poses[elites, 0], poses[elites, 1], floor[elites], s=16.0, c=GA_COLOR,
@@ -521,6 +558,8 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         for ax, top in ((ax_bbs_top, True), (ax_bbs_persp, False)):
             _setup(ax, top=top)
             _shell(ax, render, done=below_band[band - 1], active=per_band[band - 1])
+            ax.add_collection3d(Line3DCollection(range_ring, colors=RANGE_COLOR,
+                                                 linewidths=0.8, linestyles=(0, (4, 3))))
             if peak > 0.0:
                 # an open ring, so it reads as agreement when it lands on the truth's star
                 i, j = np.unravel_index(surface.argmax(), surface.shape)

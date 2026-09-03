@@ -152,14 +152,14 @@ the tier column as descriptive, not as a difficulty ranking.
 The tables above say which baseline wins. They do not show what either one
 does. `tools/render_search_animation.py` writes an animation that does, on
 synthetic geometry it generates itself, so it reproduces from a clean
-checkout with no map and no scenarios. Both halves run the real searches:
-`bl_ga`'s own population loop, genetic operators and fitness function on
-one, the exhaustive Fourier correlation from `baselines/common/bev.py` with
-band edges from `bl_bbs.build_slice_bands` on the other.
+checkout with no map and no scenarios. Both columns run the real searches:
+the left is `bl_ga`'s own population loop, genetic operators and fitness
+function, the right is the exhaustive Fourier correlation from
+`baselines/common/bev.py` with band edges from `bl_bbs.build_slice_bands`.
 
 Both methods search east, north and heading with height pinned at the rig's
 1.0 metre mount. `bl_ga`'s three-dimensional scoring is a property of its
-fitness function, not of its search space, so every pose in both panels sits
+fitness function, not of its search space, so every pose in every panel sits
 on the floor plane.
 
 Racking is grey and walls, columns and roof structure are pale red, as in the
@@ -168,23 +168,37 @@ report's scenario map. The truth is a black star, `bl_ga` is orange and
 horizontal is to scale, on a 160 by 93 by 12 metre hall with 14,880 square
 metres of floor.
 
-The frame carries no on-screen text, so this paragraph is the caption. It is
-a 2x2 grid: the top row is `bl_ga`, the bottom row is `bl_bbs`, and each row
-is split into two views of the same state, a top-down plan view (a
-near-orthographic camera looking straight down the z-axis) on the left, and
-the perspective view described above on the right. Both views in a row
-update together at every instant, so the plan view shows where things sit
-in the hall while the perspective view shows how tall they are, on the one
-shared clock.
+The layout is a 2x2 grid, one method per column: `bl_ga` on the left under
+the heading "Genetic Evolution", `bl_bbs` on the right under "Fast Fourier
+Transform", each shown twice. The upper panel of each column is a top-down
+plan view, a near-orthographic camera looking straight down the z-axis; the
+lower panel is the perspective view. Both update together, so the plan view
+shows where things sit in the hall while the perspective view shows how
+tall they are. Those two headings and the elapsed-time readout at the foot
+are the only text in the frame; everything else is geometry, motion and
+colour.
 
-The bottom-left panel carries one thing the perspective view cannot: as each
+The dashed grey circle is the lidar's 70 metre maximum range, centred on
+the true pose because that is where the scan was taken. Nothing outside it
+is in the scan at all, so the far ends of the hall are evidence neither
+method has. Note the circle is the range limit, not the coverage: inside
+it, occlusion is what actually decides what the sensor sees, which is the
+point the next paragraph makes.
+
+The top-right panel carries one thing the perspective view cannot: as each
 band is scored, the placements still within ten per cent of the best are
-drawn on the plan view too. That set is the quantity that has to collapse to
-one cell before the search has decided anything, and drawing it in plan view
-rather than as a count doubles it as a picture of where the aliasing bays
-line up, since the surviving cells cluster at the rack pitch rather than at
-random. A fully occupied band demeans to exactly zero everywhere, so the
-floor band draws no such points at all.
+drawn on the plan view too. That set is the quantity that has to collapse
+to one cell before the search has decided anything, and drawing it in plan
+view rather than as a count doubles it as a picture of the aliasing. The
+survivors are not scattered at random. They sit at exact offsets from the
+truth: multiples of the 5 metre rack row pitch across the hall, and, in the
+band holding the columns, multiples of the 20 metre column spacing along
+it. The cluster that appears roughly 51 metres down-hall is the rack blocks
+repeating, since the three blocks start at 14, 66 and 118 metres, a 52
+metre pitch. Those clusters are near-ties, not second answers: the open
+ring, which is `bl_bbs`'s current best placement, stays within one BEV cell
+of the truth in every band. A fully occupied band demeans to exactly zero
+everywhere, so the floor band draws no contention points at all.
 
 The height axis alone cannot say how much of the floor each band's evidence
 actually reaches; `--verify` now prints that, band by band. A band can be
