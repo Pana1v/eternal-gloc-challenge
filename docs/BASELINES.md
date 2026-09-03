@@ -168,14 +168,15 @@ report's scenario map. The truth is a black star, `bl_ga` is orange and
 horizontal is to scale, on a 160 by 93 by 12 metre hall with 14,880 square
 metres of floor.
 
-The layout is a 2x2 grid, one method per column: `bl_ga` on the left under
-the heading "Genetic Evolution", `bl_bbs` on the right under "Fast Fourier
-Transform", each shown twice. The upper panel of each column is a top-down
-plan view, a near-orthographic camera looking straight down the z-axis; the
-lower panel is the perspective view. Both update together, so the plan view
-shows where things sit in the hall while the perspective view shows how
-tall they are. Those two headings and the elapsed-time readout at the foot
-are the only text in the frame; everything else is geometry, motion and
+The layout is a 2x2 grid under the title "Global Localization", one method
+per column: `bl_ga` on the left under the heading "Genetic Evolution",
+`bl_bbs` on the right under "Fast Fourier Transform", each shown twice. The
+upper panel of each column is a top-down plan view, a near-orthographic
+camera looking straight down the z-axis; the lower panel is the
+perspective view. Both update together, so the plan view shows where
+things sit in the hall while the perspective view shows how tall they are.
+The title, the two headings and the elapsed-time readout at the foot are
+the only text in the frame; everything else is geometry, motion and
 colour. Once `bl_bbs` finishes, the readout also names the gap to `bl_ga`'s
 finish, since the two panels stop showing new work at very different times
 and the gap itself is part of the coverage story below.

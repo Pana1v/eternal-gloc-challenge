@@ -73,6 +73,11 @@ looks identical.
 
 ![Aliasing failure](docs/images/report_aliasing_failure.png)
 
+`bl_ga` and `bl_bbs` run on synthetic geometry, both views side by side,
+top-down and perspective, on one shared clock:
+
+![Genetic Evolution against Fast Fourier Transform](docs/images/search_ga_vs_slices.gif)
+
 Full write-up, per-tier numbers and score distributions in
 [`docs/BASELINES.md`](docs/BASELINES.md).
 
