@@ -15,6 +15,7 @@ figure cannot disagree with the score beside it.
 
 import argparse
 import math
+import multiprocessing
 import os
 import sys
 
@@ -109,6 +110,40 @@ def render_one(scenario_id, gt_T, submissions, map_raster, scenarios_dir,
     plt.close(fig)
 
 
+# Scenarios render independently and matplotlib figure work is CPU-bound, so
+# a sequential loop leaves every core but one idle (profiled: rendering is
+# ~90% of this script's wall time on a 40-scenario fixture, ~0.18s/figure).
+#
+# Unlike bl_bbs's worker init, which reloads the map from disk per worker
+# because the map itself is the payload, here main() has already reduced the
+# 9M-point map to a small 2D raster (~1 MB) before any worker exists: that
+# raster is what render_one actually draws, so it is cheaper to pickle it
+# once into every worker's initargs than to re-read and re-rasterize the
+# full point cloud in each one. Same hoist-out-of-the-loop idiom, applied to
+# whichever payload is actually small.
+#
+# spawn, not fork: matplotlib is not thread/process-safe across a fork that
+# inherits live state, and bl_bbs already hit a hang forking after Open3D
+# had run in the parent (see baselines/bl_bbs/run.py). The map read here
+# happens before the pool too.
+_CTX = {}
+
+
+def _init_worker(map_raster, scenarios_dir, gt, per_scenario, tiers, out_dir):
+    matplotlib.use("Agg")   # belt and suspenders: spawn re-imports this module,
+                             # which already sets Agg, but a worker must never
+                             # fall back to an interactive backend
+    _CTX.update(map_raster=map_raster, scenarios_dir=scenarios_dir, gt=gt,
+                per_scenario=per_scenario, tiers=tiers, out_dir=out_dir)
+
+
+def _render_one(scenario_id):
+    out_path = os.path.join(_CTX["out_dir"], f"{scenario_id}.png")
+    render_one(scenario_id, _CTX["gt"][scenario_id], _CTX["per_scenario"].get(scenario_id, {}),
+               _CTX["map_raster"], _CTX["scenarios_dir"], _CTX["tiers"].get(scenario_id), out_path)
+    return scenario_id
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenarios", required=True)
@@ -119,6 +154,8 @@ def main(argv=None):
     ap.add_argument("--tiers")
     ap.add_argument("--submission", action="append", default=[],
                      metavar="NAME=PATH", help="repeatable: a method name and its submission file")
+    ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1,
+                     help="parallel render workers (1 = serial, no pool)")
     args = ap.parse_args(argv)
 
     os.makedirs(args.out, exist_ok=True)
@@ -148,13 +185,22 @@ def main(argv=None):
                                    range=((x0, x1), (y0, y1)))
     map_raster = (np.minimum(counts, 1.0), (x0, x1, y0, y1))   # occupancy, not density
 
-    written = 0
-    for scenario_id in sorted(gt):
-        out_path = os.path.join(args.out, f"{scenario_id}.png")
-        render_one(scenario_id, gt[scenario_id], per_scenario.get(scenario_id, {}),
-                    map_raster, args.scenarios, tiers.get(scenario_id), out_path)
-        written += 1
-    print(f"wrote {written} scenario figures to {args.out}")
+    scenario_ids = sorted(gt)
+    jobs = max(1, min(args.jobs, len(scenario_ids)))
+    init_args = (map_raster, args.scenarios, gt, per_scenario, tiers, args.out)
+
+    if jobs == 1:
+        _init_worker(*init_args)
+        written = [_render_one(sid) for sid in scenario_ids]
+    else:
+        # jobs only changes how the same set of independent files gets
+        # produced, never their content or the order scenarios are listed
+        # in below, so the report cannot vary with worker count.
+        ctx = multiprocessing.get_context("spawn")
+        with ctx.Pool(jobs, initializer=_init_worker, initargs=init_args) as pool:
+            written = pool.map(_render_one, scenario_ids)
+
+    print(f"wrote {len(written)} scenario figures to {args.out}")
     return 0
 
 
