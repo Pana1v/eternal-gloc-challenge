@@ -87,6 +87,76 @@ peaks at 0.9 times the ground-truth score, a relative bar, so a scenario with
 weak geometry clears it easily and one with strong geometry does not. Treat
 the tier column as descriptive, not as a difficulty ranking.
 
+## How the two searches differ
+
+The tables above say which baseline wins. They do not show what either one
+does. `tools/render_search_animation.py` writes an animation that does, on
+synthetic geometry it generates itself, so it reproduces from a clean
+checkout with no map and no scenarios. Both panels run the real searches:
+the left is `bl_ga`'s own population loop, genetic operators and fitness
+function, the right is the exhaustive Fourier correlation from
+`baselines/common/bev.py` with band edges from `bl_bbs.build_slice_bands`.
+
+Both methods search east, north and heading with height pinned at the rig's
+1.0 metre mount. `bl_ga`'s three-dimensional scoring is a property of its
+fitness function, not of its search space, so every pose in both panels sits
+on the floor plane.
+
+Racking is grey and walls, columns and roof structure are pale red, as in the
+report's scenario map. The truth is a black star, `bl_ga` is orange and
+`bl_bbs` is blue. Each panel carries one inset. On the left it is a 20 metre
+plan view around the truth, because a two metre error is a handful of pixels
+at hall scale. On the right it is the set of placements still scoring within
+ten per cent of the best, which is the quantity that has to collapse to one
+before the search has decided anything. Height is drawn four times
+exaggerated; everything horizontal is to scale.
+
+![Sampled search against multi-band correlative search](images/search_ga_vs_slices.gif)
+
+Three differences, measured on this synthetic 160 by 93 metre hall:
+
+- **Coverage.** `bl_bbs` scores all 28,569,600 placements, a 640 by 372 grid
+  of quarter-metre cells at 120 headings, and still finishes in less
+  wall-clock time than `bl_ga` (2.65 against 10.27 seconds per scenario
+  above), because one Fourier transform prices an entire translation grid at
+  once. `bl_ga` scores 12,300 poses, 2,323 times fewer. Its 300 opening
+  samples work out at 49.6 square metres each, a 7.0 metre grid-equivalent
+  spacing, coarser than the 5 metre rack row pitch it has to resolve.
+- **Height.** `bl_bbs` cuts both clouds into five bands and weights the top
+  two, which is everything above the racking, twice as heavily. `bl_ga`, as
+  of commit `99dcfdc`, treats all heights alike.
+- **Evidence.** `bl_bbs` demeans the map grid before correlating, so empty
+  cells score negative and a near-solid surface contributes nothing: the
+  floor band is fully occupied here, and its score surface is identically
+  zero. `bl_ga`, as of commit `99dcfdc`, scores a raw inlier fraction, which
+  is exactly the un-demeaned overlap that demeaning exists to remove. Across
+  the 300 uniformly random poses this run opens with, the mean inlier
+  fraction is already 0.618: a pose picked at random explains 62 per cent of
+  the scan.
+
+The last two points are stated as of a commit on purpose. They describe
+`bl_ga`'s fitness function, which is a thing that can change, and a claim
+phrased as timeless would go stale without anything failing. If that
+fitness changes, re-render the animation and revise those two points;
+`--verify` prints the fitness definition the figure actually scored, so the
+drift shows up rather than passing silently.
+
+In the run shown, `bl_bbs` lands one quarter-metre cell from the truth
+before its refinement step. `bl_ga` converges with a 0.988 inlier fraction,
+against 1.000 at the truth, on a pose 2.07 metres away: the right aisle, the
+wrong place along it. Three of its modes survive the separation filter and
+one clears the confidence filter, and `oracle@fine` equal to `SR@fine` above
+says the alternates would not have held the answer anyway.
+
+The animation shows the ceiling weighting and it shows the demeaning, but it
+is not evidence that either one is why `bl_bbs` wins. The attribution above
+stands: evaluating every placement is what makes it work.
+
+```bash
+python tools/render_search_animation.py --out docs/images/search_ga_vs_slices.gif
+python tools/render_search_animation.py --verify   # the numbers above, no render
+```
+
 ## What a scenario looks like
 
 Each scenario is one lidar scan, one camera image, and calibration. The
