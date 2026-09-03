@@ -24,6 +24,12 @@ def _read_stats(path):
     return rows
 
 
+def _save(fig, out_path):
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
 def _cdf(values, out_path, xlabel, title):
     values = np.sort(np.array(values, dtype=np.float64))
     if len(values) == 0:
@@ -35,9 +41,7 @@ def _cdf(values, out_path, xlabel, title):
     ax.set_ylabel("cumulative fraction of scenarios")
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
+    _save(fig, out_path)
 
 
 def plot_error_cdfs(rows, out_dir):
@@ -48,6 +52,7 @@ def plot_error_cdfs(rows, out_dir):
 
 
 def plot_loss_by_tier(rows, tiers: dict, out_dir, random_loss=None):
+    out_path = os.path.join(out_dir, "loss_by_tier.png")
     if tiers:
         by_tier = {}
         for r in rows:
@@ -65,9 +70,6 @@ def plot_loss_by_tier(rows, tiers: dict, out_dir, random_loss=None):
         ax.set_ylabel("mean loss")
         ax.set_title("Loss by difficulty tier")
         ax.grid(True, axis="y", alpha=0.3)
-        fig.tight_layout()
-        fig.savefig(os.path.join(out_dir, "loss_by_tier.png"), dpi=120)
-        plt.close(fig)
     else:
         losses = [float(r["L"]) for r in rows]
         fig, ax = plt.subplots(figsize=(6, 4))
@@ -79,9 +81,7 @@ def plot_loss_by_tier(rows, tiers: dict, out_dir, random_loss=None):
         ax.set_xlabel("per-scenario loss")
         ax.set_ylabel("count")
         ax.set_title("Loss distribution")
-        fig.tight_layout()
-        fig.savefig(os.path.join(out_dir, "loss_by_tier.png"), dpi=120)
-        plt.close(fig)
+    _save(fig, out_path)
 
 
 def main(argv=None):
