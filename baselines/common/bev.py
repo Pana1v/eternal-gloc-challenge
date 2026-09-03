@@ -71,7 +71,7 @@ def correlate_translation_full(query_grid: np.ndarray, map_grid: np.ndarray):
 def precompute_map_fft(map_grid: np.ndarray, qnx: int, qny: int):
     """The map's demeaned FFT, which is loop-invariant across yaw hypotheses:
     only the query rotates, the map never does. Computing it inside the yaw
-    loop costs one of the three transforms per (yaw, slice) for nothing , at
+    loop costs one of the three transforms per (yaw, slice) for nothing, at
     120 yaws x 5 slices that is 600 map FFTs where 5 suffice.
 
     Returns (map_f, map_shape) for correlate_translation_full_precomputed.
