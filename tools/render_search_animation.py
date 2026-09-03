@@ -494,8 +494,8 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
                 hold: int = HOLD_FRAMES):
     """One GIF, one clock, four axes: one method per column, each shown top-down above and in
     perspective below. Every panel is rebuilt per frame rather than tracked as artists:
-    mplot3d has no usable blitting, and at 60 frames the redraw is not the cost. The only
-    text is the two method names and the shared clock; everything else is geometry, motion
+    mplot3d has no usable blitting, and at 60 frames the redraw is not the cost. Text is the
+    title, the two method names and the shared clock; everything else is geometry, motion
     and colour, so each column is named once and read by colour after that."""
     # mplot3d draws into a square viewport inside its axes, so a wide, short cell renders a
     # small plan view with dead space either side and raising `zoom` clips rather than fills.
@@ -508,13 +508,15 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
     ax_ga_persp = fig.add_axes((0.005, -0.010, 0.49, 0.600), projection="3d")
     ax_bbs_persp = fig.add_axes((0.505, -0.010, 0.49, 0.600), projection="3d")
 
-    fig.text(0.25, 0.985, "Genetic Evolution", ha="center", va="top", fontsize=11,
+    fig.text(0.5, 0.997, "Global Localization", ha="center", va="top", fontsize=16,
+             color="#222222", fontweight="bold")
+    fig.text(0.25, 0.955, "Genetic Evolution", ha="center", va="top", fontsize=11,
              color=GA_COLOR)
-    fig.text(0.75, 0.985, "Fast Fourier Transform", ha="center", va="top", fontsize=11,
+    fig.text(0.75, 0.955, "Fast Fourier Transform", ha="center", va="top", fontsize=11,
              color=BBS_COLOR)
     # One clock for both columns, scaled to the measured sec/scenario, so the frame where
     # bl_bbs stops and bl_ga keeps going is legible as a time rather than inferred.
-    clock = fig.text(0.5, 0.008, "", ha="center", va="bottom", fontsize=9, color="#444444")
+    clock = fig.text(0.5, 0.008, "", ha="center", va="bottom", fontsize=13, color="#444444")
 
     history = ga["history"]
     tx, ty, tyaw = TRUE_POSE
