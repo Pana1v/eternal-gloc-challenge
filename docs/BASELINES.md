@@ -125,9 +125,13 @@ more.
 | `bl_ga` | 19.78 | 44.92 | 25.26 |
 | `bl_retrieval_gicp` | 6.63 | 7.44 | 8.08 |
 
-`bl_ga`'s tier row is one seed of a stochastic search split three ways, so at
-n=9 for T1 it carries almost no weight; over five seeds its T1 sits at 25.8,
-not the 19.8 this seed happens to give.
+`bl_ga`'s row is one seed of a stochastic search split three ways, so at n=9 a
+T1 swing is two scenarios. This seed draws low on T1: over five seeds T1
+averages 25.8 for the banded fitness against 24.7 for the unweighted one, so
+the 19.8 here is not a regression on the easiest tier. Across the five seeds
+the banded fitness leads on T2 every time, on T3 four times out of five, and
+on T1 three times: the gain is concentrated where aliasing is, which is what
+the tier labels are supposed to track.
 
 The ordering is not monotonic: T3 is supposed to be hardest, yet `bl_bbs`
 scores perfectly on it and drops only on T2. The alias counter thresholds
