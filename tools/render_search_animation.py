@@ -535,7 +535,6 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         elapsed = t * GA_SEC
         gen = min(int(round(t * (len(history) - 1))), len(history) - 1)
         band = max(1, min(int(np.ceil(min(1.0, elapsed / BBS_SEC) * len(bands))), len(bands)))
-        done = elapsed >= BBS_SEC
 
         ax_ga.clear()
         ax_bbs.clear()
