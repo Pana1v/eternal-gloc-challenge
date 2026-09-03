@@ -7,6 +7,8 @@ scenario summing to <= 1.
 import json
 import numpy as np
 
+WEIGHT_DECIMALS = 4  # precision the submission format writes weights at
+
 
 def pose_matrix_from_xy_yaw(x: float, y: float, yaw: float, z: float = 0.0) -> np.ndarray:
     c, s = np.cos(yaw), np.sin(yaw)
@@ -28,7 +30,7 @@ class SubmissionWriter:
 
     def add(self, scenario_id: str, T: np.ndarray, weight: float = 1.0, k: int = 0, steps_used: int = None):
         extra = f" {steps_used}" if steps_used is not None else ""
-        self._lines.append(f"{scenario_id} {k} {weight:.4f}{extra} {matrix_to_kitti_line(T)}")
+        self._lines.append(f"{scenario_id} {k} {weight:.{WEIGHT_DECIMALS}f}{extra} {matrix_to_kitti_line(T)}")
 
     def write(self):
         with open(self.out_path, "w") as f:

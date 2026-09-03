@@ -43,8 +43,7 @@ def build_database(map_points_xy: np.ndarray, length: float, width: float):
     positions, keys = [], []
     for x in xs:
         for y in ys:
-            dist2 = (map_points_xy[:, 0] - x) ** 2 + (map_points_xy[:, 1] - y) ** 2
-            local = map_points_xy[dist2 <= MAX_RADIUS_M ** 2]
+            local = crop_map_near(map_points_xy, x, y, MAX_RADIUS_M)
             if local.shape[0] < MIN_DB_POINTS:
                 continue
             ph = build_polar_histogram(local, center=(x, y), n_angle_bins=N_ANGLE_BINS,
@@ -77,8 +76,7 @@ def run_scenario(scan: np.ndarray, map_points: np.ndarray, map_points_xy: np.nda
     best = None  # (fitness, x, y, yaw)
     for idx in top_k_idx:
         x, y = db_positions[idx]
-        dist2 = (map_points_xy[:, 0] - x) ** 2 + (map_points_xy[:, 1] - y) ** 2
-        local = map_points_xy[dist2 <= MAX_RADIUS_M ** 2]
+        local = crop_map_near(map_points_xy, x, y, MAX_RADIUS_M)
         cand_ph = build_polar_histogram(local, center=(x, y), n_angle_bins=N_ANGLE_BINS,
                                          n_radius_bins=N_RADIUS_BINS, max_radius=MAX_RADIUS_M)
         yaw, _score = estimate_yaw_shift(query_ph, cand_ph)

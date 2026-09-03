@@ -22,7 +22,7 @@ import open3d as o3d
 from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from common.submission_writer import SubmissionWriter  # noqa: E402
+from common.submission_writer import SubmissionWriter, WEIGHT_DECIMALS  # noqa: E402
 
 from projection import (
     project_points, hypothesis_pose_matrix, remove_occluded, K_from_camera_info, T_base_camera_from_calib,
@@ -30,7 +30,7 @@ from projection import (
 from edge_score import image_edge_map, projected_edge_map, score_edge_agreement
 
 MAP_CROP_RADIUS_M = 30.0
-WEIGHT_DECIMALS = 4          # SubmissionWriter formats weights as %.4f
+N_POSE_VALUES = 12  # a 3x4 pose matrix, flattened
 
 
 def parse_hypotheses(path: str):
@@ -44,7 +44,7 @@ def parse_hypotheses(path: str):
             scenario_id, k, w = parts[0], int(parts[1]), float(parts[2])
             rest = parts[3:]
             steps_used = None
-            if len(rest) == 13:
+            if len(rest) == N_POSE_VALUES + 1:
                 steps_used = int(rest[0])
                 rest = rest[1:]
             values = [float(v) for v in rest]
@@ -97,8 +97,9 @@ def rerank_scenario(scenario_dir: str, map_points: np.ndarray, hypotheses: list)
 
     scored.sort(key=lambda t: t[0], reverse=True)
     scores = np.array([s for s, _ in scored])
-    if scores.sum() > 0:
-        weights = scores / scores.sum()
+    total = scores.sum()
+    if total > 0:
+        weights = scores / total
     else:
         weights = np.full(len(scores), 1.0 / len(scores))
 
