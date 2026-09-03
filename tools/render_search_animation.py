@@ -532,11 +532,14 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         # collapses from "most of the band" to "one cell" as the sweep narrows, and it is
         # exactly where the aliasing bays line up. A fully occupied band demeans to zero
         # score everywhere, so band 1 draws nothing here rather than a stand-in for that.
+        # Black-edged rather than flat BBS_COLOR: the active band's own geometry is drawn in
+        # that same blue, and a flat-blue dot on a flat-blue beam line is invisible.
         if contenders is not None:
             cx = contenders[:, 0] * bl_bbs.RESOLUTION_M
             cy = contenders[:, 1] * bl_bbs.RESOLUTION_M
-            ax_bbs_top.scatter(cx, cy, np.full(len(cx), bl_ga.SENSOR_HEIGHT_M), s=2.0,
-                               c=BBS_COLOR, depthshade=False, linewidths=0)
+            ax_bbs_top.scatter(cx, cy, np.full(len(cx), bl_ga.SENSOR_HEIGHT_M), s=7.0,
+                               c=BBS_COLOR, depthshade=False, edgecolors="black",
+                               linewidths=0.3)
 
         if verdict:
             return
