@@ -682,11 +682,11 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
 
         if verdict:
             footer.set_text(
-                f"on the released dev split bl_bbs scores 97.74 with SR@fine 0.975 and "
-                f"bl_ga scores 22.36 with SR@fine 0.025 (docs/BASELINES.md), and the repo "
-                f"credits the exhaustive search for the difference\n"
-                f"this run is synthetic geometry, one scenario, and reproduces the same "
-                f"two outcomes: an exact match against a confident near miss")
+                "on the released dev split bl_bbs scores 97.74 with SR@fine 0.975 and "
+                "bl_ga scores 22.36 with SR@fine 0.025 (docs/BASELINES.md), and the repo "
+                "credits the exhaustive search for the difference\n"
+                "this run is synthetic geometry, one scenario, and reproduces the same "
+                "two outcomes: an exact match against a confident near miss")
             return
         footer.set_text(
             f"{elapsed:.2f} s of {GA_SEC:.2f} s on one clock scaled to the measured "
@@ -773,8 +773,8 @@ def verify(points, ga, bbs) -> bool:
                                 *bands[4]).grid
     print(f"   bl_bbs  map grid demeaned before correlation (common/bev.py:71). Band 1 "
           f"occupancy {band1.mean():.4f}, band 5 {band5.mean():.4f}:")
-    print(f"           a near-solid surface demeans to nothing, which is what stops trivial "
-          f"floor-matches-floor from")
+    print("           a near-solid surface demeans to nothing, which is what stops trivial "
+          "floor-matches-floor from")
     print(f"           swamping the sparse structure. Band 1's score surface here is "
           f"identically zero (max {float(bbs['surfaces'][0].max()):.1f}).")
 
