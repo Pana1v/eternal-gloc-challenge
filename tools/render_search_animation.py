@@ -339,7 +339,8 @@ def run_bbs(scan: np.ndarray, map_points: np.ndarray):
     n_yaws = len(np.arange(0.0, 2 * np.pi, np.radians(bl_bbs.YAW_STEP_DEG)))
     return {"pose": (x, y, yaw), "score": score, "bands": bands, "weights": weights,
             "surfaces": surfaces, "grid_shape": (nx, ny), "n_yaws": n_yaws,
-            "placements": nx * ny * n_yaws, "coverage": scan_coverage(scan, bands)}
+            "placements": nx * ny * n_yaws, "coverage": scan_coverage(scan, bands),
+            "occupancy": [float(g.mean()) for g in map_grids]}
 
 
 def scan_coverage(scan: np.ndarray, bands):
@@ -376,6 +377,11 @@ VIEW = (32.0, -62.0)      # fixed: a rotating camera changes every pixel of ever
 # "Still in contention" bar. docs/BASELINES.md uses the same 0.9-of-the-best convention for
 # its alias counter, so the shrinking set in the inset is measured the way the tiers are.
 CONTENTION = 0.9
+# Above this plan-view occupancy a band is effectively a continuous surface, and demeaning
+# cancels it. Not a synthetic artefact: eval/map_svg.py:16-19 says the released map's floor
+# and ceiling "are continuous surfaces covering every cell", from bounds read off that map's
+# own height histogram.
+SOLID_OCCUPANCY = 0.9
 # A 2 m error is six pixels across a 160 m hall, so the left panel gets a plan-view zoom.
 # Without it the figure asserts that bl_ga missed and then shows a marker on the truth.
 ZOOM_HALF_M = 10.0
@@ -609,20 +615,26 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         _pose(ax_bbs, tx, ty, tyaw, TRUTH_COLOR, 10)
         bbs_err = float(np.hypot(bbs["pose"][0] - tx, bbs["pose"][1] - ty))
         if verdict:
+            sparse = [k + 1 for k, o in enumerate(bbs["occupancy"])
+                      if o <= SOLID_OCCUPANCY and weights[k] > 1.0]
             info_bbs.set_text(
                 f"done in {BBS_SEC:.2f} s, all {len(bands)} bands folded in, all "
                 f"{bbs['placements']:,} placements scored\n"
                 f"the global maximum over every placement, not a sampled peak\n"
-                f"winning pose {bbs_err:.2f} m from the truth, one BEV cell "
-                f"({bl_bbs.RESOLUTION_M} m), before its ICP refinement")
+                f"of the two doubled bands only band {sparse[0]} is sparse enough to survive "
+                f"demeaning\n"
+                f"winning pose {bbs_err:.2f} m from the truth, one BEV cell, pre-ICP")
         else:
+            occ = bbs["occupancy"][band - 1]
             info_bbs.set_text(
                 f"band {band} of {len(bands)}   z {lo:.2f} to {hi:.2f} m   "
                 f"weight {weights[band - 1]:.0f}x\n"
                 f"{band_notes[band - 1]}\n"
-                f"all {bbs['placements']:,} placements scored "
-                f"({bbs['grid_shape'][0]}x{bbs['grid_shape'][1]} cells x {bbs['n_yaws']} "
-                f"headings), {bbs['placements'] // 12300:,}x bl_ga's 12,300")
+                f"map occupancy {occ:.3f}: "
+                + ("near-solid, demeans to almost nothing" if occ > SOLID_OCCUPANCY
+                   else "sparse, survives demeaning") + "\n"
+                f"all {bbs['placements']:,} placements scored, "
+                f"{bbs['placements'] // 12300:,}x bl_ga's 12,300")
 
         # --- inset: how many placements are still tied --------------------------------
         if peak <= 0.0:

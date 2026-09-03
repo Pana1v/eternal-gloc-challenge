@@ -124,6 +124,24 @@ of the floor area apiece, and the ceiling band, which has clear sightlines
 above the racking, sees a quarter of it on twenty concentric beam rings. The
 70 metre range is not the binding constraint here; occlusion is.
 
+Coverage is not the same as evidence, though, and read together the two
+right-hand insets show why. The ceiling band sees more of the floor than any
+other, but a map's ceiling is a near-solid deck: its plan-view occupancy
+here is 0.993, so demeaning cancels almost all of it and the doubled weight
+multiplies what little survives. The band that discriminates is the sparse
+one above the racking, at 0.211 occupancy, despite seeing only 3.2 per cent
+of the floor. The doubled weight earns its keep through the above-rack band,
+not through the roof, so this page's phrase "the two ceiling bands" is
+looser than the mechanism.
+
+That is a property of real warehouses rather than of this synthetic hall.
+`eval/map_svg.py:16-19`, describing bounds "read off the map's own height
+histogram, not guessed", says of the released map that the floor and the
+ceiling "are continuous surfaces covering every cell, so a band touching
+either renders the whole map solid and hides everything else". The band it
+draws to show structure, "high band 7.0-10.5 m, structural columns and the
+tall landmarks", is the same above-rack zone.
+
 ![Sampled search against multi-band correlative search](images/search_ga_vs_slices.gif)
 
 Three differences, measured on this synthetic 160 by 93 metre hall:
