@@ -95,6 +95,13 @@ proportional to its weight rather than to its point count. That is the version
 in the table. Compared scenario by scenario at matched seeds, it moves 19
 of 200 outcomes from miss to hit and 2 the other way.
 
+It costs nothing measurable. The weights are one pass over the 500 sampled
+points per scenario against roughly six million tree queries, and three
+repeats on an otherwise idle 16-core host put the banded fitness at 5.02
+sec/scenario against 4.95 unweighted, inside the run-to-run spread of either.
+The `sec/scenario` column above is from the original baseline run on different
+hardware and is not re-measured here.
+
 The gain is not really about the ceiling. `bl_ga` selects by rank, so what
 limits it is the fitness range available to rank candidates apart. Floor and
 roof are matched at 0.95 and 0.88 by the best of 400 random poses, which puts
