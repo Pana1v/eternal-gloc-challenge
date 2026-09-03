@@ -3,13 +3,7 @@ figure exists, and links it by a path relative to the report itself so the
 whole directory browses offline after being moved or copied.
 """
 
-import os
-
 from report import casewise_table, main as report_main
-
-
-def _run(sid, e_t, e_r, sr_fine):
-    return {"summary": {}, "rows": {sid: {"e_t": e_t, "e_r": e_r, "sr_fine": sr_fine}}}
 
 
 def test_casewise_links_only_supplied_ids():
