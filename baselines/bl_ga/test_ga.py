@@ -200,9 +200,7 @@ def test_per_band_fitness_lets_a_sparse_ceiling_break_a_tie():
     landmark = rng.normal(0, 0.2, size=(40, 3)) + np.array([2.0, 0.0, 8.0])
     tree = cKDTree(np.concatenate([floor, landmark], axis=0))
 
-    scan = np.concatenate([
-        rng.uniform(-20.0, 20.0, size=(4000, 2)),
-    ], axis=0)
+    scan = rng.uniform(-20.0, 20.0, size=(4000, 2))
     scan = np.column_stack([scan, np.full(len(scan), -SENSOR_HEIGHT_M)])
     scan = np.concatenate([scan, landmark - np.array([0.0, 0.0, SENSOR_HEIGHT_M])], axis=0)
 

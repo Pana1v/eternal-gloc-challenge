@@ -49,8 +49,8 @@ def run_scenario(scenario_dir: str, map_points: np.ndarray, length: float, width
 # sequential run leaves every core but one idle.
 #
 # Workers start via "spawn" and load the map themselves rather than
-# inheriting it through fork. Inheriting is tempting , copy-on-write would
-# share the 9 M-point map for free , but the parent has already used Open3D
+# inheriting it through fork. Inheriting is tempting, copy-on-write would
+# share the 9 M-point map for free, but the parent has already used Open3D
 # by then, and forking a process with live thread pools gives the child locks
 # whose owning threads do not exist in it. Confirmed here: every fork worker
 # completed its scenario, then hung forever at pool teardown. Re-reading the
