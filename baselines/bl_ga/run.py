@@ -19,6 +19,7 @@ import open3d as o3d
 from scipy.spatial import cKDTree
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from common.bev import build_slice_bands
 from common.icp import refine_pose, crop_map_near
 from common.submission_writer import SubmissionWriter, write_submission_meta, pose_matrix_from_xy_yaw
 
@@ -38,6 +39,7 @@ WEIGHT_DECIMALS = 4          # SubmissionWriter formats weights as %.4f
 ICP_CROP_RADIUS_M = 5.0
 SENSOR_HEIGHT_M = 1.0    # fixed rig height (docs/SENSORS.md), as in bl_bbs/bl_retrieval_gicp
 DEFAULT_SEED = 0
+FITNESS_BANDING = "none"     # "none" | "per-point" | "per-band"; see scan_point_weights
 
 
 def random_population(rng, n: int, bounds) -> np.ndarray:
@@ -50,10 +52,48 @@ def random_population(rng, n: int, bounds) -> np.ndarray:
     ], axis=1)
 
 
-def evaluate(poses: np.ndarray, scan: np.ndarray, tree: cKDTree) -> np.ndarray:
+def scan_point_weights(scan: np.ndarray, bands, band_weights, mode: str):
+    """Per-scan-point fitness weights from the point's height band, or None for a flat
+    average. Weights depend only on z, so they are built once per scenario and reused
+    across every pose the search evaluates.
+
+    Two ways to spend bl_bbs's [1, 1, 1, 2, 2]:
+
+    "per-point" is the literal analogue: every point in a ceiling band counts double.
+    bl_bbs can weight a slice directly because each slice is scored by its own
+    correlation, but here every point lands in one flat average, so a per-point weight
+    just hands the extra mass to whichever band is most populous.
+
+    "per-band" instead splits each band's weight evenly among its own points, making the
+    fitness an average of per-band inlier fractions. This is what gives a sparse band a
+    vote proportional to its weight rather than to its point count.
+
+    Empty bands are skipped rather than special-cased downstream: their points do not
+    exist, so there is nothing to weight.
+    """
+    if mode == "none":
+        return None
+
+    z = scan[:, 2] + SENSOR_HEIGHT_M
+    weights = np.zeros(len(scan))
+    for (z_lo, z_hi), w in zip(bands, band_weights):
+        in_band = (z >= z_lo) & (z < z_hi)
+        n = in_band.sum()
+        if n:
+            weights[in_band] = w / n if mode == "per-band" else w
+    return weights
+
+
+def evaluate(poses: np.ndarray, scan: np.ndarray, tree: cKDTree,
+              point_weights: np.ndarray = None) -> np.ndarray:
     """Fitness = fraction of scan points within INLIER_DIST_M of a map point at the candidate
-    pose. Batches all candidates into one KD-tree query; a per-candidate Python loop wouldn't
-    scale to a 300-member population over 40 generations."""
+    pose, optionally weighted per point. Batches all candidates into one KD-tree query; a
+    per-candidate Python loop wouldn't scale to a 300-member population over 40 generations.
+
+    The tree is 3D and INLIER_DIST_M (0.5 m) is well under the thinnest band (2.5 m), so a
+    ceiling point cannot match rack geometry and per-band trees buy nothing: measured on the
+    dev set, 0.06% of matched ceiling points had their nearest neighbour below the ceiling.
+    """
     x, y, yaw = poses[:, 0:1], poses[:, 1:2], poses[:, 2:3]
     c, s = np.cos(yaw), np.sin(yaw)
 
@@ -64,7 +104,10 @@ def evaluate(poses: np.ndarray, scan: np.ndarray, tree: cKDTree) -> np.ndarray:
 
     points = np.stack([wx, wy, wz], axis=-1).reshape(-1, 3)
     dist, _ = tree.query(points, k=1, workers=-1)
-    return (dist.reshape(len(poses), -1) <= INLIER_DIST_M).mean(axis=1)
+    inlier = dist.reshape(len(poses), -1) <= INLIER_DIST_M
+    if point_weights is None:
+        return inlier.mean(axis=1)
+    return (inlier * point_weights).sum(axis=1) / point_weights.sum()
 
 
 def mutate(elites: np.ndarray, rng, n: int, sigma_xy: float, sigma_yaw: float) -> np.ndarray:
@@ -107,13 +150,14 @@ def confident_subset(poses: np.ndarray, fitness: np.ndarray, keep_ratio: float):
 
 
 def evolve(scan: np.ndarray, tree: cKDTree, bounds, rng,
-            population: int = POPULATION, generations: int = GENERATIONS):
+            population: int = POPULATION, generations: int = GENERATIONS,
+            point_weights: np.ndarray = None):
     """Runs the search and returns (poses, fitness) for the final population."""
     poses = random_population(rng, population, bounds)
     sigma_xy, sigma_yaw = SIGMA_XY_M, SIGMA_YAW_DEG
 
     for _ in range(generations):
-        fitness = evaluate(poses, scan, tree)
+        fitness = evaluate(poses, scan, tree, point_weights)
         elites = poses[np.argsort(fitness)[::-1][:ELITE_K]]
 
         n_children = population - ELITE_K - IMMIGRANTS
@@ -126,16 +170,18 @@ def evolve(scan: np.ndarray, tree: cKDTree, bounds, rng,
         sigma_xy *= SIGMA_DECAY
         sigma_yaw *= SIGMA_DECAY
 
-    return poses, evaluate(poses, scan, tree)
+    return poses, evaluate(poses, scan, tree, point_weights)
 
 
-def run_scenario(scenario_dir: str, map_points: np.ndarray, tree: cKDTree, bounds, seed: int):
+def run_scenario(scenario_dir: str, map_points: np.ndarray, tree: cKDTree, bounds, seed: int,
+                  bands=None, band_weights=None, banding: str = FITNESS_BANDING):
     scan = np.asarray(o3d.io.read_point_cloud(os.path.join(scenario_dir, "lidar.pcd")).points)
 
     rng = np.random.default_rng(seed)
     sample = scan if len(scan) <= SCAN_SAMPLE else scan[rng.choice(len(scan), SCAN_SAMPLE, replace=False)]
 
-    poses, fitness = evolve(sample, tree, bounds, rng)
+    weights = scan_point_weights(sample, bands, band_weights, banding) if bands else None
+    poses, fitness = evolve(sample, tree, bounds, rng, point_weights=weights)
     top_poses, top_fitness = distinct_top(poses, fitness, N_HYPOTHESES, HYPOTHESIS_MIN_SEP_M)
     top_poses, top_fitness = confident_subset(top_poses, top_fitness, HYPOTHESIS_KEEP_RATIO)
 
@@ -173,12 +219,16 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED,
                          help="the search is stochastic; fix this to make a run reproducible")
+    parser.add_argument("--banding", default=FITNESS_BANDING,
+                         choices=["none", "per-point", "per-band"],
+                         help="how bl_bbs's ceiling slice weights are spent on fitness")
     args = parser.parse_args()
 
     map_points = np.asarray(o3d.io.read_point_cloud(args.map).points)
     tree = cKDTree(map_points)
     bounds = ((map_points[:, 0].min(), map_points[:, 0].max()),
                (map_points[:, 1].min(), map_points[:, 1].max()))
+    bands, band_weights = build_slice_bands(map_points[:, 2].min(), map_points[:, 2].max())
     print(f"map: {len(map_points)} points, footprint "
            f"{bounds[0][1] - bounds[0][0]:.1f}x{bounds[1][1] - bounds[1][0]:.1f}m")
 
@@ -190,7 +240,7 @@ def main():
     for scenario_id in scenario_ids:
         t0 = time.time()
         refined = run_scenario(os.path.join(args.scenarios, scenario_id), map_points, tree,
-                                bounds, args.seed)
+                                bounds, args.seed, bands, band_weights, args.banding)
         weights = hypothesis_weights([f for _, _, _, f in refined])
 
         for k, ((x, y, yaw, fit), w) in enumerate(zip(refined, weights)):
@@ -207,7 +257,7 @@ def main():
         "population": POPULATION, "generations": GENERATIONS, "elite_k": ELITE_K,
         "immigrants": IMMIGRANTS, "sigma_xy_m": SIGMA_XY_M, "sigma_yaw_deg": SIGMA_YAW_DEG,
         "sigma_decay": SIGMA_DECAY, "inlier_dist_m": INLIER_DIST_M,
-        "scan_sample": SCAN_SAMPLE, "seed": args.seed,
+        "scan_sample": SCAN_SAMPLE, "seed": args.seed, "banding": args.banding,
         "hypothesis_keep_ratio": HYPOTHESIS_KEEP_RATIO,
     }, n_scenarios=len(scenario_ids))
     print(f"wrote {args.out} ({len(scenario_ids)} scenarios)")

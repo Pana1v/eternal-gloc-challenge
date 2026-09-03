@@ -15,7 +15,7 @@ import numpy as np
 import open3d as o3d
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from common.bev import match_scan_to_map
+from common.bev import build_slice_bands, match_scan_to_map
 from common.icp import refine_pose, crop_map_near
 from common.submission_writer import SubmissionWriter, write_submission_meta, pose_matrix_from_xy_yaw
 
@@ -24,15 +24,6 @@ YAW_STEP_DEG = 3.0
 ICP_CROP_RADIUS_M = 5.0
 SENSOR_HEIGHT_M = 1.0  # fixed rig height (see docs/SENSORS.md); ICP needs
                        # this as initial Z to find correspondences
-
-
-def build_slice_bands(z_min: float, z_max: float):
-    """5 bands rescaled to the map's z-extent; top two (ceiling layer) weighted 2x per spec."""
-    height = z_max - z_min
-    fracs = [(0.0, 1 / 12), (1 / 12, 3.5 / 12), (3.5 / 12, 6.5 / 12), (6.5 / 12, 9.5 / 12), (9.5 / 12, 1.0)]
-    bands = [(z_min + lo * height, z_min + hi * height) for lo, hi in fracs]
-    weights = [1.0, 1.0, 1.0, 2.0, 2.0]
-    return bands, weights
 
 
 def run_scenario(scenario_dir: str, map_points: np.ndarray, length: float, width: float,

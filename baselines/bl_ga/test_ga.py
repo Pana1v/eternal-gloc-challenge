@@ -18,6 +18,7 @@ hypothesis_weights = _run.hypothesis_weights
 mutate = _run.mutate
 random_population = _run.random_population
 confident_subset = _run.confident_subset
+scan_point_weights = _run.scan_point_weights
 SENSOR_HEIGHT_M = _run.SENSOR_HEIGHT_M
 
 
@@ -124,3 +125,79 @@ def test_written_weights_never_exceed_one():
                      [0.3841, 0.3839, 0.3655]):
         written = sum(float("%.4f" % w) for w in hypothesis_weights(fitness))
         assert written <= 1.0, f"{fitness} -> {written}"
+
+
+def test_uniform_weights_reproduce_the_flat_fitness():
+    """The weighted path must be a strict generalization: equal weights on every point
+    have to give back the plain inlier fraction, or a banding experiment is comparing
+    against a moved baseline rather than the old one. Equality is to floating point, not
+    bitwise: mean() sums pairwise and the weighted path sums linearly."""
+    rng = np.random.default_rng(5)
+    map_points = _asymmetric_cluster(4.0, 3.0, rng)
+    tree = cKDTree(map_points)
+    scan = map_points - np.array([4.0, 3.0, SENSOR_HEIGHT_M])
+    poses = np.array([[4.0, 3.0, 0.0], [4.5, 3.2, 0.3], [30.0, 30.0, 1.0]])
+
+    flat = evaluate(poses, scan, tree)
+    weighted = evaluate(poses, scan, tree, np.full(len(scan), 0.7))
+    assert np.allclose(flat, weighted, rtol=0, atol=1e-12)
+
+
+def test_scan_point_weights_modes_spend_band_weight_differently():
+    """per-point hands a band mass proportional to its point count; per-band hands it
+    the band weight regardless. The difference is the whole experiment, so pin it."""
+    bands = [(0.0, 5.0), (5.0, 10.0)]
+    band_weights = [1.0, 2.0]
+    # 9 points low, 1 high; scan z is sensor-relative, so subtract the rig height
+    scan = np.zeros((10, 3))
+    scan[:, 2] = np.array([1.0] * 9 + [7.0]) - SENSOR_HEIGHT_M
+
+    assert scan_point_weights(scan, bands, band_weights, "none") is None
+
+    per_point = scan_point_weights(scan, bands, band_weights, "per-point")
+    assert np.allclose(per_point[:9], 1.0) and np.isclose(per_point[9], 2.0)
+    # the ceiling band is weighted 2x yet still commands under a fifth of the fitness
+    assert np.isclose(per_point[9] / per_point.sum(), 2.0 / 11.0)
+
+    per_band = scan_point_weights(scan, bands, band_weights, "per-band")
+    assert np.isclose(per_band[:9].sum(), 1.0) and np.isclose(per_band[9], 2.0)
+    assert np.isclose(per_band[9] / per_band.sum(), 2.0 / 3.0)
+
+
+def test_scan_point_weights_tolerates_an_empty_band():
+    """The map's z-extent sets the bands, so a scan that sees nothing in one of them is
+    normal, not an error, and must not divide by a zero population."""
+    bands = [(0.0, 5.0), (5.0, 10.0), (10.0, 15.0)]
+    scan = np.zeros((4, 3))
+    scan[:, 2] = np.array([1.0, 2.0, 12.0, 13.0]) - SENSOR_HEIGHT_M
+
+    weights = scan_point_weights(scan, bands, [1.0, 2.0, 2.0], "per-band")
+    assert np.all(np.isfinite(weights))
+    assert np.isclose(weights[:2].sum(), 1.0) and np.isclose(weights[2:].sum(), 2.0)
+
+
+def test_per_band_fitness_lets_a_sparse_ceiling_break_a_tie():
+    """Two poses explain the floor equally well and only one also explains the sparse
+    ceiling landmark. Flat fitness barely separates them because the ceiling is a handful
+    of points; per-band fitness separates them decisively. This is the mechanism the
+    z-banding change is betting on."""
+    rng = np.random.default_rng(6)
+    floor = rng.uniform(-30.0, 30.0, size=(4000, 2))
+    floor = np.column_stack([floor, np.zeros(len(floor))])          # featureless slab
+    landmark = rng.normal(0, 0.2, size=(40, 3)) + np.array([2.0, 0.0, 8.0])
+    tree = cKDTree(np.concatenate([floor, landmark], axis=0))
+
+    scan = np.concatenate([
+        rng.uniform(-20.0, 20.0, size=(4000, 2)),
+    ], axis=0)
+    scan = np.column_stack([scan, np.full(len(scan), -SENSOR_HEIGHT_M)])
+    scan = np.concatenate([scan, landmark - np.array([0.0, 0.0, SENSOR_HEIGHT_M])], axis=0)
+
+    bands = [(-1.0, 4.0), (4.0, 12.0)]
+    poses = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, np.pi]])  # yaw flip: same floor, wrong landmark
+
+    flat = evaluate(poses, scan, tree)
+    banded = evaluate(poses, scan, tree,
+                       scan_point_weights(scan, bands, [1.0, 2.0], "per-band"))
+    assert flat[0] > flat[1] and banded[0] > banded[1]
+    assert (banded[0] - banded[1]) > 10 * (flat[0] - flat[1])
