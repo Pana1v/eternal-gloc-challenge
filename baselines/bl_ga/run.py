@@ -73,19 +73,19 @@ def scan_point_weights(scan: np.ndarray, bands, band_weights, mode: str):
     fitness an average of per-band inlier fractions. This is what gives a sparse band a
     vote proportional to its weight rather than to its point count.
 
-    Empty bands are skipped rather than special-cased downstream: their points do not
-    exist, so there is nothing to weight.
+    Binning by the interior edges alone puts every point in exactly one band, so a
+    return just outside the map's z extent lands in the nearest band instead of scoring
+    zero, and a band with no points is never divided by.
     """
     if mode == "none":
         return None
 
     z = scan[:, 2] + SENSOR_HEIGHT_M
-    weights = np.zeros(len(scan))
-    for (z_lo, z_hi), w in zip(bands, band_weights):
-        in_band = (z >= z_lo) & (z < z_hi)
-        n = in_band.sum()
-        if n:
-            weights[in_band] = w / n if mode == "per-band" else w
+    band = np.searchsorted([z_hi for _, z_hi in bands[:-1]], z, side="right")
+
+    weights = np.asarray(band_weights, dtype=np.float64)[band]
+    if mode == "per-band":
+        weights /= np.bincount(band, minlength=len(bands))[band]
     return weights
 
 

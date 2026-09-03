@@ -176,6 +176,19 @@ def test_scan_point_weights_tolerates_an_empty_band():
     assert np.isclose(weights[:2].sum(), 1.0) and np.isclose(weights[2:].sum(), 2.0)
 
 
+def test_scan_point_weights_keeps_returns_outside_the_map_extent():
+    """Bands come from the map's z-extent, so a scan can see slightly outside it. Those
+    returns must fall into the nearest band, not silently drop to zero weight and leave
+    the fitness quietly ignoring them."""
+    bands = [(0.0, 5.0), (5.0, 10.0)]
+    scan = np.zeros((4, 3))
+    scan[:, 2] = np.array([-3.0, 1.0, 7.0, 99.0]) - SENSOR_HEIGHT_M
+
+    for mode in ("per-point", "per-band"):
+        weights = scan_point_weights(scan, bands, [1.0, 2.0], mode)
+        assert np.all(weights > 0.0), f"{mode} dropped an out-of-extent return"
+
+
 def test_per_band_fitness_lets_a_sparse_ceiling_break_a_tie():
     """Two poses explain the floor equally well and only one also explains the sparse
     ceiling landmark. Flat fitness barely separates them because the ceiling is a handful
