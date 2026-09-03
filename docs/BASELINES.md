@@ -36,6 +36,11 @@ of the scan it explains, and mutates the survivors over successive
 generations. Pays only for the placements it samples, and submits its
 surviving modes as up to three hypotheses.
 
+Fitness averages the per-height-band inlier fractions, using the same bands
+and the same ceiling weighting as `bl_bbs`. Averaging within each band before
+combining is what matters, and it is not the obvious reading of "weight the
+ceiling twice"; see the note below the results table.
+
 ### Camera edge re-ranking (`bl_vpr_rerank`)
 
 Re-orders and re-weights a pose hypothesis set produced elsewhere, by
@@ -53,12 +58,18 @@ it. `bl_vpr_rerank` writes no compute sidecar, so its cost is not recorded.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `bl_bbs` | 97.74 | 0.975 | 0.975 | 0.975 | 0.0226 | 2.65 | 1100 |
 | `bl_vpr_rerank` | 97.74 | 0.975 | 0.975 | 0.975 | 0.0226 | not recorded | not recorded |
-| `bl_ga` | 22.36 | 0.025 | 0.025 | 0.025 | 0.7764 | 10.27 | 1100 |
+| `bl_ga` | 27.96 | 0.125 | 0.125 | 0.125 | 0.7204 | 10.27 | 1100 |
 | `bl_retrieval_gicp` | 7.63 | 0.000 | 0.000 | 0.000 | 0.9237 | 23.27 | 1218 |
 | random guess | 1.64 | - | - | - | 0.9836 | - | - |
 
 With 40 scenarios a success rate can only land on multiples of 0.025, so a
 gap of one scenario is not a difference between methods.
+
+`bl_ga` is stochastic, so its row is one draw. The number above is `--seed 0`;
+over five seeds the score spans 27.96-32.05. Read it as a range, not a constant,
+and do not compare two variants of it on one seed each: the unweighted fitness
+alone spans 19.96-29.45 across seeds, which is wider than the gap between the
+fitness variants below.
 
 `bl_vpr_rerank` ties `bl_bbs` because it was handed `bl_bbs` output, which
 carries one hypothesis per scenario. A list of one cannot be reordered, and a
@@ -69,6 +80,39 @@ exercise it, feed it a method that emits several hypotheses.
 hypotheses were better than its primary, so there is currently no re-ranking
 headroom anywhere in this set.
 
+### Why `bl_ga`'s fitness averages per band
+
+The obvious way to give `bl_ga` the ceiling emphasis `bl_bbs` gets from
+`slice_weights` is to weight each scan point by its band: a ceiling point
+counts twice. Over five seeds that changes nothing: it means 23.62 against
+the unweighted 23.41, spanning 19.56-25.79 where the baseline spans
+19.96-29.45. Almost all the added weight lands on the roof deck, a continuous
+surface that matches nearly anywhere. The band that actually disambiguates is
+the truss and lamp and HVAC layer, and it carries about 3% of the scan.
+
+Averaging the per-band inlier fractions instead gives that band a vote
+proportional to its weight rather than to its point count. That is the version
+in the table. Compared scenario by scenario at matched seeds, it moves 19
+of 200 outcomes from miss to hit and 2 the other way.
+
+The gain is not really about the ceiling. `bl_ga` selects by rank, so what
+limits it is the fitness range available to rank candidates apart. Floor and
+roof are matched at 0.95 and 0.88 by the best of 400 random poses, which puts
+a large near-constant pedestal under every score; a random pose already sits
+at 0.51 of the way to a perfect one. Per-band averaging drops that pedestal to
+0.39 and the surviving range is what the search climbs. `bl_bbs` demeans its
+map grids for the same reason, and says so in
+[`baselines/common/bev.py`](../baselines/common/bev.py).
+
+What z-banding does not fix is the search itself. The fitness landscape was
+never the problem: on all 40 dev scenarios the unweighted fitness already
+scores the true pose at or above every pose the search converges to, by a mean
+margin of 0.092 against a sample resolution of 0.002. The basin around the
+true pose is under a metre wide in a 161 by 98 m footprint, and the method
+draws 300 initial poses plus 30 per generation, which puts the chance of any
+draw landing in it near 2%. That is the same order as the success rate, and no
+reweighting of fitness changes it.
+
 ## Per-tier breakdown
 
 Tiers come from a measured alias count: T1 has none, T2 at most three, T3
@@ -78,8 +122,12 @@ more.
 | --- | --- | --- | --- |
 | `bl_bbs` | 99.76 | 90.99 | 99.30 |
 | `bl_vpr_rerank` | 99.76 | 90.99 | 99.30 |
-| `bl_ga` | 34.15 | 14.88 | 20.34 |
+| `bl_ga` | 19.78 | 44.92 | 25.26 |
 | `bl_retrieval_gicp` | 6.63 | 7.44 | 8.08 |
+
+`bl_ga`'s tier row is one seed of a stochastic search split three ways, so at
+n=9 for T1 it carries almost no weight; over five seeds its T1 sits at 25.8,
+not the 19.8 this seed happens to give.
 
 The ordering is not monotonic: T3 is supposed to be hardest, yet `bl_bbs`
 scores perfectly on it and drops only on T2. The alias counter thresholds

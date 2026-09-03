@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """B4 baseline: naive evolutionary search over SE(2) poses. Scatter random pose guesses,
-score by scan coverage, keep the best, mutate into the next generation, repeat.
+score by how much of the scan they explain, keep the best, mutate into the next
+generation, repeat. Coverage is averaged per height band so the sparse ceiling structure
+is not drowned out by the floor and roof deck, which match almost anywhere.
 
 Unlike B1's exhaustive FFT correlation, this only pays for poses it samples, so it scales
 past B1's grid limit, but it's stochastic and can converge into a rack-level alias; the
@@ -39,7 +41,10 @@ WEIGHT_DECIMALS = 4          # SubmissionWriter formats weights as %.4f
 ICP_CROP_RADIUS_M = 5.0
 SENSOR_HEIGHT_M = 1.0    # fixed rig height (docs/SENSORS.md), as in bl_bbs/bl_retrieval_gicp
 DEFAULT_SEED = 0
-FITNESS_BANDING = "none"     # "none" | "per-point" | "per-band"; see scan_point_weights
+# "per-band" | "per-point" | "none". Per-band measures ~8 points of score above the
+# unweighted "none" on the dev set at no compute cost; see scan_point_weights and
+# docs/BASELINES.md for why the per-point reading of bl_bbs's weights does nothing.
+FITNESS_BANDING = "per-band"
 
 
 def random_population(rng, n: int, bounds) -> np.ndarray:

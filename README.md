@@ -48,9 +48,15 @@ Track A, 40 dev scenarios. `S-fine` is 0.5 m and 5 degrees.
 | --- | --- | --- | --- |
 | `bl_bbs` multi-slice correlative search | 97.74 | 0.975 | 2.65 |
 | `bl_vpr_rerank` camera edge re-ranking | 97.74 | 0.975 | not recorded |
-| `bl_ga` evolutionary pose search | 22.36 | 0.025 | 10.27 |
+| `bl_ga` evolutionary pose search | 27.96 | 0.125 | 10.27 |
 | `bl_retrieval_gicp` polar-histogram retrieval | 7.63 | 0.000 | 23.27 |
 | random guess (reference floor) | 1.64 | - | - |
+
+`bl_ga` is stochastic; its row is `--seed 0` and spans 27.96-32.05 over five
+seeds. Its fitness averages inlier fractions per height band, which is what
+keeps the sparse ceiling structure from being drowned out by the floor and the
+roof deck; [`docs/BASELINES.md`](docs/BASELINES.md) works through why the
+obvious per-point weighting does not achieve that.
 
 The scorer writes a self-contained HTML report with a scenario map you can
 page through. Racking is grey, columns and walls and landmarks are dark red,
