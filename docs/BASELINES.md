@@ -84,16 +84,17 @@ headroom anywhere in this set.
 
 The obvious way to give `bl_ga` the ceiling emphasis `bl_bbs` gets from
 `slice_weights` is to weight each scan point by its band: a ceiling point
-counts twice. Over five seeds that changes nothing: it means 23.62 against
-the unweighted 23.41, spanning 19.56-25.79 where the baseline spans
+counts twice. Over five seeds that changes nothing: it means 23.47 against
+the unweighted 23.41, spanning 19.56-25.53 where the baseline spans
 19.96-29.45. Almost all the added weight lands on the roof deck, a continuous
 surface that matches nearly anywhere. The band that actually disambiguates is
 the truss and lamp and HVAC layer, and it carries about 3% of the scan.
 
 Averaging the per-band inlier fractions instead gives that band a vote
 proportional to its weight rather than to its point count. That is the version
-in the table. Compared scenario by scenario at matched seeds, it moves 19
-of 200 outcomes from miss to hit and 2 the other way.
+in the table. Compared scenario by scenario at matched seeds, it moves 20
+of 200 outcomes from miss to hit and 2 the other way, and it leads the
+unweighted fitness on all five seeds.
 
 It costs nothing measurable. The weights are one pass over the 500 sampled
 points per scenario against roughly six million tree queries, and three

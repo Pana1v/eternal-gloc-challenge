@@ -41,7 +41,7 @@ WEIGHT_DECIMALS = 4          # SubmissionWriter formats weights as %.4f
 ICP_CROP_RADIUS_M = 5.0
 SENSOR_HEIGHT_M = 1.0    # fixed rig height (docs/SENSORS.md), as in bl_bbs/bl_retrieval_gicp
 DEFAULT_SEED = 0
-# "per-band" | "per-point" | "none". Per-band measures ~8 points of score above the
+# "per-band" | "per-point" | "none". Per-band measures ~7 points of score above the
 # unweighted "none" on the dev set at no compute cost; see scan_point_weights and
 # docs/BASELINES.md for why the per-point reading of bl_bbs's weights does nothing.
 FITNESS_BANDING = "per-band"
