@@ -113,8 +113,8 @@ def score_scenario(scenario_id: str, T_gt: np.ndarray, hypotheses, track: str) -
         per_hyp.append((hyp, e_t, e_r, hyp_loss))
 
     weight_sum = sum(h.weight for h in hypotheses)
-    weighted_loss = sum(w * hl for (h, _, _, hl), w in zip(per_hyp, (h.weight for h in hypotheses)))
-    weighted_loss += max(0.0, 1.0 - weight_sum) * 1.0
+    weighted_loss = sum(h.weight * hl for h, _, _, hl in per_hyp)
+    weighted_loss += max(0.0, 1.0 - weight_sum)
 
     primary = max(per_hyp, key=lambda item: item[0].weight)
     primary_hyp, primary_e_t, primary_e_r, _ = primary
