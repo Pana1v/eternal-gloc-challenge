@@ -58,6 +58,11 @@ def method_identity(method: str):
     return (method, name, desc)
 
 
+def _csv_by_scenario(path):
+    with open(path) as f:
+        return {r["scenario_id"]: r for r in csv.DictReader(f)}
+
+
 def load_runs(results_dir: str):
     """One entry per scored run, newest first when a method was scored twice."""
     runs = {}
@@ -67,13 +72,9 @@ def load_runs(results_dir: str):
         stats_path = os.path.join(os.path.dirname(summary_path), "stats.csv")
         if not os.path.exists(stats_path):
             continue
-        with open(stats_path) as f:
-            rows = {r["scenario_id"]: r for r in csv.DictReader(f)}
+        rows = _csv_by_scenario(stats_path)
         poses_path = os.path.join(os.path.dirname(summary_path), "poses.csv")
-        poses = {}
-        if os.path.exists(poses_path):
-            with open(poses_path) as f:
-                poses = {r["scenario_id"]: r for r in csv.DictReader(f)}
+        poses = _csv_by_scenario(poses_path) if os.path.exists(poses_path) else {}
         method = summary.get("run", {}).get("method") or os.path.basename(os.path.dirname(summary_path))
         runs[method] = {"summary": summary, "rows": rows, "poses": poses}   # later run wins
     return runs
@@ -82,8 +83,7 @@ def load_runs(results_dir: str):
 def load_tiers(path):
     if not path or not os.path.exists(path):
         return {}
-    with open(path) as f:
-        return {r["scenario_id"]: r for r in csv.DictReader(f)}
+    return _csv_by_scenario(path)
 
 
 def fnum(value, digits=2, dash="-"):
