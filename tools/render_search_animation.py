@@ -339,7 +339,28 @@ def run_bbs(scan: np.ndarray, map_points: np.ndarray):
     n_yaws = len(np.arange(0.0, 2 * np.pi, np.radians(bl_bbs.YAW_STEP_DEG)))
     return {"pose": (x, y, yaw), "score": score, "bands": bands, "weights": weights,
             "surfaces": surfaces, "grid_shape": (nx, ny), "n_yaws": n_yaws,
-            "placements": nx * ny * n_yaws}
+            "placements": nx * ny * n_yaws, "coverage": scan_coverage(scan, bands)}
+
+
+def scan_coverage(scan: np.ndarray, bands):
+    """Where on the floor plan each band's scan evidence actually comes from.
+
+    Sliced on the scan's own z against the band edges, which is what match_scan_to_map
+    does, so the footprint drawn is the one that band's correlation consumed. Answers a
+    question the height axis cannot: a band can be tall and still be told almost nothing,
+    because the sensor's vertical limits and the racking decide what reaches it.
+    """
+    tx, ty, tyaw = TRUE_POSE
+    c, s = np.cos(tyaw), np.sin(tyaw)
+    world = np.stack([c * scan[:, 0] - s * scan[:, 1] + tx,
+                      s * scan[:, 0] + c * scan[:, 1] + ty], axis=1)
+    out = []
+    for z_lo, z_hi in bands:
+        xy = world[(scan[:, 2] >= z_lo) & (scan[:, 2] < z_hi)]
+        touched = len(set(map(tuple, np.floor(xy).astype(np.int64)))) if len(xy) else 0
+        out.append({"xy": xy, "returns": len(xy), "cells": touched,
+                    "pct": 100.0 * touched / (LENGTH_M * WIDTH_M)})
+    return out
 
 
 # --- rendering ---------------------------------------------------------------------------
@@ -385,7 +406,7 @@ def _clip(segments, z_lo: float, z_hi: float):
     return out
 
 
-def _setup(ax):
+def _setup(ax, z_labels=True):
     ax.set_xlim(0, LENGTH_M)
     ax.set_ylim(0, WIDTH_M)
     ax.set_zlim(0, HEIGHT_M)
@@ -394,6 +415,8 @@ def _setup(ax):
     ax.set_xticks([0, 80, 160])
     ax.set_yticks([0, 93])
     ax.set_zticks([0, 6, 12])
+    if not z_labels:
+        ax.set_zticklabels([])
     ax.tick_params(labelsize=6, pad=-3)
     for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
         axis.pane.set_alpha(0.0)
@@ -433,11 +456,12 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
     # The 3D boxes project wide and flat, so they are given more axes height than the
     # figure has and allowed to overflow: that crops the dead band under the content
     # instead of shipping it as committed bytes.
-    fig = plt.figure(figsize=(12.0, 4.9))
-    ax_ga = fig.add_axes((0.005, -0.055, 0.49, 0.97), projection="3d")
-    ax_bbs = fig.add_axes((0.500, -0.055, 0.49, 0.97), projection="3d")
-    ax_zoom = fig.add_axes((0.350, 0.505, 0.148, 0.28))
-    ax_inset = fig.add_axes((0.845, 0.505, 0.148, 0.28))
+    fig = plt.figure(figsize=(12.0, 5.5))
+    ax_ga = fig.add_axes((0.005, -0.045, 0.49, 0.92), projection="3d")
+    ax_bbs = fig.add_axes((0.500, -0.045, 0.49, 0.92), projection="3d")
+    ax_zoom = fig.add_axes((0.340, 0.555, 0.150, 0.230))
+    ax_inset = fig.add_axes((0.838, 0.555, 0.150, 0.230))
+    ax_cover = fig.add_axes((0.838, 0.145, 0.150, 0.230))
 
     history = ga["history"]
     tx, ty, tyaw = TRUE_POSE
@@ -462,23 +486,36 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
                           if x0 <= x <= x1]
     zoom_feet = np.array(zoom_feet).reshape(-1, 2)
 
+    plan_rows = [[(a[0], a[1]), (b[0], b[1])] for a, b in render["racks"]
+                 if abs(a[2] - b[2]) < 1e-9]
+
     per_band = [_clip(render["racks"], lo, hi) + _clip(render["structure"], lo, hi)
                 for lo, hi in bands]
     below_band = [sum(per_band[:k], []) for k in range(len(bands))]
 
     truth_fit = ga["truth_fitness"]
-    scatter_note = (f"{bl_ga.POPULATION} poses over {LENGTH_M:.0f}x{WIDTH_M:.0f} m: "
-                    f"{np.sqrt(LENGTH_M * WIDTH_M / bl_ga.POPULATION):.1f} m grid-equivalent "
-                    f"spacing, coarser than the {RACK_PITCH_M:.1f} m rack pitch")
+    # The two blind zones are set by the vertical field of view and the mount height, not by
+    # the 70 m range: occlusion and elevation limits are what cap coverage here.
+    floor_blind = bl_ga.SENSOR_HEIGHT_M / np.tan(np.radians(-LIDAR_EL_DEG[0]))
+    roof_blind = (ROOF_Z_M - bl_ga.SENSOR_HEIGHT_M) / np.tan(np.radians(LIDAR_EL_DEG[1]))
+    hall_note = (f"{LENGTH_M:.0f} x {WIDTH_M:.0f} x {HEIGHT_M:.0f} m hall, "
+                 f"{LENGTH_M * WIDTH_M:,.0f} m2 of floor,\n{len(RACK_ROWS_Y)} rack rows at "
+                 f"{RACK_PITCH_M:.1f} m pitch")
+    scatter_note = (f"{hall_note}, sampled by {bl_ga.POPULATION} poses at a "
+                    f"{np.sqrt(LENGTH_M * WIDTH_M / bl_ga.POPULATION):.1f} m "
+                    f"grid-equivalent spacing: coarser than the pitch")
     fig.text(0.012, 0.980, "bl_ga   sampled search over (x, y, yaw)", fontsize=9.5,
              va="top", color=GA_COLOR)
     fig.text(0.507, 0.980, "bl_bbs   exhaustive search, five height bands", fontsize=9.5,
              va="top", color=BBS_COLOR)
-    fig.text(0.012, 0.940, scatter_note, fontsize=6.8, va="top", color="#555555")
-    note_bbs = fig.text(0.507, 0.940, "", fontsize=6.8, va="top", color="#555555")
-    info_ga = fig.text(0.012, 0.900, "", fontsize=7.6, va="top", color="#222222",
+    fig.text(0.012, 0.945, scatter_note, fontsize=6.8, va="top", color="#555555",
+             linespacing=1.45)
+    fig.text(0.507, 0.945, f"{hall_note}, every placement scored at "
+             f"{bl_bbs.RESOLUTION_M} m and {bl_bbs.YAW_STEP_DEG:.0f} deg", fontsize=6.8,
+             va="top", color="#555555", linespacing=1.45)
+    info_ga = fig.text(0.012, 0.872, "", fontsize=7.6, va="top", color="#222222",
                        linespacing=1.5)
-    info_bbs = fig.text(0.507, 0.900, "", fontsize=7.6, va="top", color="#222222",
+    info_bbs = fig.text(0.507, 0.872, "", fontsize=7.6, va="top", color="#222222",
                         linespacing=1.5)
     footer = fig.text(0.5, 0.005, "", ha="center", va="bottom", fontsize=6.8,
                       color="#333333", linespacing=1.5)
@@ -495,6 +532,7 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         ax_bbs.clear()
         ax_zoom.clear()
         ax_inset.clear()
+        ax_cover.clear()
 
         # --- left: the population -----------------------------------------------------
         state = history[gen]
@@ -552,14 +590,14 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         ax_zoom.set_aspect("equal")
         ax_zoom.set_xticks([])
         ax_zoom.set_yticks([])
-        ax_zoom.set_title(f"zoom, {2 * ZOOM_HALF_M:.0f} m across: best pose vs the truth",
-                          fontsize=6.2, pad=2.0)
+        ax_zoom.set_title(f"zoom, {2 * ZOOM_HALF_M:.0f} m across: best pose vs truth",
+                          fontsize=5.9, pad=2.0)
         for spine in ax_zoom.spines.values():
             spine.set_linewidth(0.4)
 
         # --- right: the bands ---------------------------------------------------------
         lo, hi = bands[band - 1]
-        _setup(ax_bbs)
+        _setup(ax_bbs, z_labels=False)
         _shell(ax_bbs, render, done=below_band[band - 1], active=per_band[band - 1])
         surface = surfaces[band - 1]
         peak = float(surface.max())
@@ -569,14 +607,11 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
             _pose(ax_bbs, i * bl_bbs.RESOLUTION_M, j * bl_bbs.RESOLUTION_M,
                   bbs["pose"][2], BBS_COLOR, 9, marker="o", filled=False)
         _pose(ax_bbs, tx, ty, tyaw, TRUTH_COLOR, 10)
-        note_bbs.set_text(f"every one of {bbs['placements']:,} placements scored "
-                          f"({bbs['grid_shape'][0]}x{bbs['grid_shape'][1]} cells x "
-                          f"{bbs['n_yaws']} headings), {bbs['placements'] // 12300:,}x bl_ga's "
-                          f"{12300:,}")
         bbs_err = float(np.hypot(bbs["pose"][0] - tx, bbs["pose"][1] - ty))
         if verdict:
             info_bbs.set_text(
-                f"done in {BBS_SEC:.2f} s, all five bands folded in\n"
+                f"done in {BBS_SEC:.2f} s, all {len(bands)} bands folded in, all "
+                f"{bbs['placements']:,} placements scored\n"
                 f"the global maximum over every placement, not a sampled peak\n"
                 f"winning pose {bbs_err:.2f} m from the truth, one BEV cell "
                 f"({bl_bbs.RESOLUTION_M} m), before its ICP refinement")
@@ -585,8 +620,9 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
                 f"band {band} of {len(bands)}   z {lo:.2f} to {hi:.2f} m   "
                 f"weight {weights[band - 1]:.0f}x\n"
                 f"{band_notes[band - 1]}\n"
-                + ("resolved, holding while bl_ga runs on" if done
-                   else "accumulating weighted evidence"))
+                f"all {bbs['placements']:,} placements scored "
+                f"({bbs['grid_shape'][0]}x{bbs['grid_shape'][1]} cells x {bbs['n_yaws']} "
+                f"headings), {bbs['placements'] // 12300:,}x bl_ga's 12,300")
 
         # --- inset: how many placements are still tied --------------------------------
         if peak <= 0.0:
@@ -607,9 +643,27 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         ax_inset.set_aspect("equal")
         ax_inset.set_xticks([])
         ax_inset.set_yticks([])
-        ax_inset.set_title(f"placements within {100 - CONTENTION * 100:.0f}% of the best: "
-                           f"{in_play:,}", fontsize=6.2, pad=2.0)
+        ax_inset.set_title(f"within {100 - CONTENTION * 100:.0f}% of the best: {in_play:,}",
+                           fontsize=5.9, pad=2.0)
         for spine in ax_inset.spines.values():
+            spine.set_linewidth(0.4)
+
+        # --- right lower inset: where this band's evidence came from ------------------
+        cover = bbs["coverage"][band - 1]
+        ax_cover.add_collection(LineCollection(plan_rows, colors="#dcdcdc", linewidths=0.5))
+        if cover["returns"]:
+            ax_cover.scatter(cover["xy"][:, 0], cover["xy"][:, 1], s=0.5, c=BBS_COLOR,
+                             linewidths=0)
+        ax_cover.plot([tx], [ty], marker="*", color=TRUTH_COLOR, markersize=5.5,
+                      markeredgewidth=0.0)
+        ax_cover.set_xlim(0, LENGTH_M)
+        ax_cover.set_ylim(0, WIDTH_M)
+        ax_cover.set_aspect("equal")
+        ax_cover.set_xticks([])
+        ax_cover.set_yticks([])
+        ax_cover.set_title(f"band {band} evidence: {cover['pct']:.1f}% of the floor",
+                           fontsize=5.9, pad=2.0)
+        for spine in ax_cover.spines.values():
             spine.set_linewidth(0.4)
 
         if verdict:
@@ -625,7 +679,10 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
             f"sec/scenario in docs/BASELINES.md; bl_bbs finishes at {BBS_SEC:.2f} s despite "
             f"scoring {bbs['placements'] // 12300:,}x more placements\n"
             f"both searches are SE(2) with z pinned at {bl_ga.SENSOR_HEIGHT_M:.1f} m   |   "
-            f"z drawn {Z_EXAGGERATION:.0f}x   |   black star: the truth")
+            f"z drawn {Z_EXAGGERATION:.0f}x   |   black star: the truth   |   "
+            f"the {LIDAR_EL_DEG[0]:.0f} to +{LIDAR_EL_DEG[1]:.0f} deg vertical field of view "
+            f"blinds the sensor to the floor within {floor_blind:.1f} m and to the roof "
+            f"within {roof_blind:.1f} m, so no band sees the whole hall")
 
     animation = FuncAnimation(fig, draw, frames=frames + hold, interval=1000 // fps)
     animation.save(out_path, writer=PillowWriter(fps=fps), dpi=DPI)

@@ -104,12 +104,25 @@ on the floor plane.
 
 Racking is grey and walls, columns and roof structure are pale red, as in the
 report's scenario map. The truth is a black star, `bl_ga` is orange and
-`bl_bbs` is blue. Each panel carries one inset. On the left it is a 20 metre
-plan view around the truth, because a two metre error is a handful of pixels
-at hall scale. On the right it is the set of placements still scoring within
-ten per cent of the best, which is the quantity that has to collapse to one
-before the search has decided anything. Height is drawn four times
-exaggerated; everything horizontal is to scale.
+`bl_bbs` is blue. Height is drawn four times exaggerated; everything
+horizontal is to scale, on a 160 by 93 by 12 metre hall with 14,880 square
+metres of floor.
+
+Three insets carry what the hall-scale view cannot show. Top left is a
+20 metre plan view around the truth, because a two metre error is a handful
+of pixels across a 160 metre hall. Top right is the set of placements still
+scoring within ten per cent of the best, the quantity that has to collapse
+to one before the search has decided anything. Bottom right is where the
+current band's evidence physically comes from, in plan view.
+
+That third inset answers a question the height axis cannot. A band can be
+tall and still be told very little. The lidar's vertical field of view runs
+-15 to +45 degrees from a 1.0 metre mount, which blinds it to the floor
+within 3.7 metres and to the roof within 10.7 metres, and the racking
+occludes nearly everything else. So the rack bands see under nine per cent
+of the floor area apiece, and the ceiling band, which has clear sightlines
+above the racking, sees a quarter of it on twenty concentric beam rings. The
+70 metre range is not the binding constraint here; occlusion is.
 
 ![Sampled search against multi-band correlative search](images/search_ga_vs_slices.gif)
 
