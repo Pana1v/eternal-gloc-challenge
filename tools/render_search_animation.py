@@ -380,6 +380,17 @@ VIEW = (32.0, -62.0)      # fixed: a rotating camera changes every pixel of ever
 # same 0.9-of-the-best convention for its alias counter, so this is measured the way the
 # tiers are.
 CONTENTION = 0.9
+# Contenders farther than this from the winning cell are a different aliased placement, not
+# the same near-tie as the winner; drawn dimmed so the aliasing is visible without competing
+# with the answer. Half the rack pitch: the winner's own cluster sits within a metre of it,
+# the aliased clusters sit at whole rack-pitch multiples or more.
+CONTENTION_NEAR_M = RACK_PITCH_M / 2
+# Same idea on the bl_ga side: elites this far from the population's current best are a
+# distinct, weaker mode rather than the cluster converging on the answer, and get drawn as
+# plain population dots instead of the elite highlight. Larger than the converged cluster's
+# own spread (a metre or so late in the run), far smaller than the gap to another mode
+# (tens of metres, since bl_ga's raw fitness is nearly indifferent to a lot of the hall).
+ELITE_CLUSTER_RADIUS_M = 5.0
 # Above this plan-view occupancy a band is effectively a continuous surface, and demeaning
 # cancels it. Not a synthetic artefact: eval/map_svg.py:16-19 says the released map's floor
 # and ceiling "are continuous surfaces covering every cell", from bounds read off that map's
@@ -521,7 +532,10 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         elapsed = t * GA_SEC
         gen = min(int(round(t * (len(history) - 1))), len(history) - 1)
         band = max(1, min(int(np.ceil(min(1.0, elapsed / BBS_SEC) * len(bands))), len(bands)))
-        clock.set_text(f"{elapsed:.2f} s")
+        if elapsed >= BBS_SEC:
+            clock.set_text(f"{elapsed:.2f} s   (bl_bbs done, +{elapsed - BBS_SEC:.2f} s ago)")
+        else:
+            clock.set_text(f"{elapsed:.2f} s")
 
         for ax in (ax_ga_top, ax_ga_persp, ax_bbs_top, ax_bbs_persp):
             ax.clear()
@@ -532,6 +546,13 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         elites = np.argsort(fitness)[::-1][:bl_ga.ELITE_K]
         floor = np.full(len(poses), bl_ga.SENSOR_HEIGHT_M)
         best = poses[fitness.argmax()]
+        # Elites near-tied with a distant pose are real (bl_ga's raw fitness barely separates
+        # some wrong poses from the true one), but highlighting all of them makes a transient
+        # secondary mode look like a rendering glitch next to the one the run submits. Only
+        # the elites clustered with the current best get the elite treatment; a stray one a
+        # rack row or more away just renders as an ordinary population dot.
+        near_best = elites[np.hypot(poses[elites, 0] - best[0],
+                                    poses[elites, 1] - best[1]) <= ELITE_CLUSTER_RADIUS_M]
 
         for ax, top in ((ax_ga_top, True), (ax_ga_persp, False)):
             _setup(ax, top=top)
@@ -540,8 +561,8 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
                                                  linewidths=0.8, linestyles=(0, (4, 3))))
             ax.scatter(poses[:, 0], poses[:, 1], floor, s=5.0, c=GA_COLOR,
                        depthshade=False, linewidths=0)
-            ax.scatter(poses[elites, 0], poses[elites, 1], floor[elites], s=16.0, c=GA_COLOR,
-                       depthshade=False, edgecolors="black", linewidths=0.35)
+            ax.scatter(poses[near_best, 0], poses[near_best, 1], floor[near_best], s=16.0,
+                       c=GA_COLOR, depthshade=False, edgecolors="black", linewidths=0.35)
             # an open ring on the population's own best, so convergence is visible without
             # reading a fitness number off the frame
             _pose(ax, best[0], best[1], best[2], GA_COLOR, 10, marker="o", filled=False)
@@ -553,6 +574,7 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         # --- bl_bbs: the band sweep, drawn top-down and in perspective ------------------
         surface = surfaces[band - 1]
         peak = float(surface.max())
+        winner = np.unravel_index(surface.argmax(), surface.shape) if peak > 0.0 else None
         contenders = np.argwhere(surface >= CONTENTION * peak) if peak > 0.0 else None
 
         for ax, top in ((ax_bbs_top, True), (ax_bbs_persp, False)):
@@ -560,10 +582,9 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
             _shell(ax, render, done=below_band[band - 1], active=per_band[band - 1])
             ax.add_collection3d(Line3DCollection(range_ring, colors=RANGE_COLOR,
                                                  linewidths=0.8, linestyles=(0, (4, 3))))
-            if peak > 0.0:
+            if winner is not None:
                 # an open ring, so it reads as agreement when it lands on the truth's star
-                i, j = np.unravel_index(surface.argmax(), surface.shape)
-                _pose(ax, i * bl_bbs.RESOLUTION_M, j * bl_bbs.RESOLUTION_M,
+                _pose(ax, winner[0] * bl_bbs.RESOLUTION_M, winner[1] * bl_bbs.RESOLUTION_M,
                       bbs["pose"][2], BBS_COLOR, 9, marker="o", filled=False)
             _pose(ax, tx, ty, tyaw, TRUTH_COLOR, 10)
 
@@ -571,14 +592,22 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         # collapses from "most of the band" to "one cell" as the sweep narrows, and it is
         # exactly where the aliasing bays line up. A fully occupied band demeans to zero
         # score everywhere, so band 1 draws nothing here rather than a stand-in for that.
-        # Black-edged rather than flat BBS_COLOR: the active band's own geometry is drawn in
-        # that same blue, and a flat-blue dot on a flat-blue beam line is invisible.
         if contenders is not None:
             cx = contenders[:, 0] * bl_bbs.RESOLUTION_M
             cy = contenders[:, 1] * bl_bbs.RESOLUTION_M
-            ax_bbs_top.scatter(cx, cy, np.full(len(cx), bl_ga.SENSOR_HEIGHT_M), s=7.0,
-                               c=BBS_COLOR, depthshade=False, edgecolors="black",
-                               linewidths=0.3)
+            near = np.hypot(cx - winner[0] * bl_bbs.RESOLUTION_M,
+                            cy - winner[1] * bl_bbs.RESOLUTION_M) <= CONTENTION_NEAR_M
+            z = np.full(len(cx), bl_ga.SENSOR_HEIGHT_M)
+            if np.any(~near):
+                # aliased elsewhere in the hall: dimmed and unedged, so it reads as background
+                # texture rather than competing with the answer for attention
+                ax_bbs_top.scatter(cx[~near], cy[~near], z[~near], s=4.0, c=BBS_COLOR,
+                                   depthshade=False, alpha=0.35, linewidths=0)
+            # the winner's own near-ties: black-edged rather than flat BBS_COLOR, since the
+            # active band's own geometry is drawn in that same blue and a flat-blue dot on a
+            # flat-blue beam line is invisible
+            ax_bbs_top.scatter(cx[near], cy[near], z[near], s=7.0, c=BBS_COLOR,
+                               depthshade=False, edgecolors="black", linewidths=0.3)
 
         if verdict:
             return
