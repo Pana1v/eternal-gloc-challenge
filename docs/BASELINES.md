@@ -176,7 +176,9 @@ lower panel is the perspective view. Both update together, so the plan view
 shows where things sit in the hall while the perspective view shows how
 tall they are. Those two headings and the elapsed-time readout at the foot
 are the only text in the frame; everything else is geometry, motion and
-colour.
+colour. Once `bl_bbs` finishes, the readout also names the gap to `bl_ga`'s
+finish, since the two panels stop showing new work at very different times
+and the gap itself is part of the coverage story below.
 
 The dashed grey circle is the lidar's 70 metre maximum range, centred on
 the true pose because that is where the scan was taken. Nothing outside it
@@ -197,8 +199,20 @@ it. The cluster that appears roughly 51 metres down-hall is the rack blocks
 repeating, since the three blocks start at 14, 66 and 118 metres, a 52
 metre pitch. Those clusters are near-ties, not second answers: the open
 ring, which is `bl_bbs`'s current best placement, stays within one BEV cell
-of the truth in every band. A fully occupied band demeans to exactly zero
-everywhere, so the floor band draws no contention points at all.
+of the truth in every band. Points more than half a rack pitch from the
+winning cell are drawn faded, so the aliasing stays visible without
+competing with the answer for attention. A fully occupied band demeans to
+exactly zero everywhere, so the floor band draws no contention points at
+all.
+
+`bl_ga`'s own population can show the same kind of thing: its raw,
+un-demeaned fitness sometimes rates a pose ten or more metres away almost
+as highly as the true one, for the reason in the next section, and that
+pose's elites will show up in the scatter. Only elites within a few metres
+of the population's current best get the black-edged elite highlight,
+though, so a fleeting distant mode reads as ordinary population noise
+rather than as a second answer competing with the one the run converges
+on.
 
 The height axis alone cannot say how much of the floor each band's evidence
 actually reaches; `--verify` now prints that, band by band. A band can be
