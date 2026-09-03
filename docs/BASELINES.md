@@ -184,8 +184,21 @@ The dashed grey circle is the lidar's 70 metre maximum range, centred on
 the true pose because that is where the scan was taken. Nothing outside it
 is in the scan at all, so the far ends of the hall are evidence neither
 method has. Note the circle is the range limit, not the coverage: inside
-it, occlusion is what actually decides what the sensor sees, which is the
-point the next paragraph makes.
+it, occlusion is what actually decides what the sensor sees, which the
+scan points below make visible and the paragraph after that states in
+numbers.
+
+The faint blue points scattered under everything else in `bl_bbs`'s
+top-down panel are the current band's actual scan returns, reprojected to
+world coordinates: the raw evidence that band's correlation is scored
+against, not a candidate answer like the markers drawn over them. They
+make the occlusion argument visible rather than stated. The rack bands
+show thin scattered lines down the open aisles nearest the truth, since a
+rack row blocks the beams that would otherwise cross it. The ceiling band
+shows concentric rings centred on the truth: each ring is one of the
+lidar's 32 fixed elevation channels intersecting the flat roof deck at its
+own fixed range, which is what "twenty concentric beam rings" below is
+describing.
 
 The top-right panel carries one thing the perspective view cannot: as each
 band is scored, the placements still within ten per cent of the best are

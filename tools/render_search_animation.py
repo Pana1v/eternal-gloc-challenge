@@ -577,11 +577,22 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         winner = np.unravel_index(surface.argmax(), surface.shape) if peak > 0.0 else None
         contenders = np.argwhere(surface >= CONTENTION * peak) if peak > 0.0 else None
 
+        # The current band's actual scan returns, reprojected to world coordinates and
+        # flattened to the floor plane: not a candidate placement like the contention dots
+        # below, but the raw evidence bl_bbs's correlation for this band is scored against.
+        # Plan view only, and drawn first so the search-state markers layer on top of it.
+        cover = bbs["coverage"][band - 1]
+        cover_xy = cover["xy"]
+
         for ax, top in ((ax_bbs_top, True), (ax_bbs_persp, False)):
             _setup(ax, top=top)
             _shell(ax, render, done=below_band[band - 1], active=per_band[band - 1])
             ax.add_collection3d(Line3DCollection(range_ring, colors=RANGE_COLOR,
                                                  linewidths=0.8, linestyles=(0, (4, 3))))
+            if top and len(cover_xy):
+                ax.scatter(cover_xy[:, 0], cover_xy[:, 1],
+                          np.full(len(cover_xy), bl_ga.SENSOR_HEIGHT_M), s=1.2, c=BBS_COLOR,
+                          depthshade=False, alpha=0.25, linewidths=0)
             if winner is not None:
                 # an open ring, so it reads as agreement when it lands on the truth's star
                 _pose(ax, winner[0] * bl_bbs.RESOLUTION_M, winner[1] * bl_bbs.RESOLUTION_M,
