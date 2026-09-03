@@ -113,6 +113,12 @@ dr python3.12 baselines/bl_vpr_rerank/run.py \
     --scenarios /fixture/scenarios --map /fixture/prior_map.pcd \
     --hypotheses /fixture/sub_bbs.txt --out /fixture/sub_rerank.txt
 
+echo "== figures (parallel render, exercises eval/render_scenarios.py --jobs) =="
+dr python3.12 eval/render_scenarios.py \
+    --scenarios /fixture/scenarios --map /fixture/prior_map.pcd --gt /fixture/gt.txt \
+    --out /fixture/results/figures --submission bbs=/fixture/sub_bbs.txt \
+    --submission ret=/fixture/sub_ret.txt --submission rerank=/fixture/sub_rerank.txt
+
 echo "== score =="
 for m in bbs ret rerank; do
     dr python3.12 eval/score.py --submission "/fixture/sub_$m.txt" --gt /fixture/gt.txt \
