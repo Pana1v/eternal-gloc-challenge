@@ -170,11 +170,12 @@ metres of floor.
 
 The frame carries no on-screen text, so this paragraph is the caption. It is
 a 2x2 grid: the top row is `bl_ga`, the bottom row is `bl_bbs`, and each row
-is split into a top-down plan view on the left, a near-orthographic camera
-looking straight down the z-axis, and the perspective view described above
-on the right. Both views in a row share the same state at every instant, so
-the plan view shows where things sit in the hall while the perspective view
-shows how tall they are, on the one shared clock.
+is split into two views of the same state, a top-down plan view (a
+near-orthographic camera looking straight down the z-axis) on the left, and
+the perspective view described above on the right. Both views in a row
+update together at every instant, so the plan view shows where things sit
+in the hall while the perspective view shows how tall they are, on the one
+shared clock.
 
 The bottom-left panel carries one thing the perspective view cannot: as each
 band is scored, the placements still within ten per cent of the best are
