@@ -6,6 +6,8 @@ Submission line A:   <scenario_id> <k> <w> r11 ... tz
 Submission line B:   <scenario_id> <k> <w> <steps_used> r11 ... tz
 """
 
+import json
+import os
 from collections import defaultdict
 
 from metrics import kitti_line_to_matrix, Hypothesis, MAX_HYPOTHESES
@@ -101,9 +103,6 @@ def load_compute_meta(submission_path: str):
     submission. Returns None when there is none: compute is an optional,
     self-declared KPI and its absence must never fail a scoring run.
     """
-    import json
-    import os
-
     path = submission_path + ".meta.json"
     if not os.path.exists(path):
         return None
