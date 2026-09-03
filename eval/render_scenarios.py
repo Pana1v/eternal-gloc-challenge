@@ -42,6 +42,14 @@ ARROW_M = 4.0             # heading arrow length
 METHOD_COLORS = ["#D55E00", "#0072B2", "#009E73", "#CC79A7", "#E69F00"]
 
 
+def _scenario_file(scenarios_dir, scenario_id, filename):
+    """Prefers the flat per-scenario layout, falls back to Track B's first step."""
+    flat = os.path.join(scenarios_dir, scenario_id, filename)
+    if os.path.exists(flat):
+        return flat
+    return os.path.join(scenarios_dir, scenario_id, "steps", "000", filename)
+
+
 def pose_xy_yaw(T):
     return float(T[0, 3]), float(T[1, 3]), math.atan2(float(T[1, 0]), float(T[0, 0]))
 
@@ -65,9 +73,7 @@ def render_one(scenario_id, gt_T, submissions, map_raster, scenarios_dir,
     ax.imshow(raster.T, origin="lower", extent=extent, cmap="Greys", vmin=0, vmax=1.35,
               interpolation="nearest", zorder=1)
 
-    scan_path = os.path.join(scenarios_dir, scenario_id, "lidar.pcd")
-    if not os.path.exists(scan_path):
-        scan_path = os.path.join(scenarios_dir, scenario_id, "steps", "000", "lidar.pcd")
+    scan_path = _scenario_file(scenarios_dir, scenario_id, "lidar.pcd")
     if os.path.exists(scan_path):
         scan = np.asarray(o3d.io.read_point_cloud(scan_path).points)
         if scan.shape[0] > SCAN_SAMPLE:
@@ -96,9 +102,7 @@ def render_one(scenario_id, gt_T, submissions, map_raster, scenarios_dir,
     ax.set_title(f"{scenario_id}{context}", fontsize=11)
 
     cam = fig.add_subplot(grid[0, 1])
-    cam_path = os.path.join(scenarios_dir, scenario_id, "camera.png")
-    if not os.path.exists(cam_path):
-        cam_path = os.path.join(scenarios_dir, scenario_id, "steps", "000", "camera.png")
+    cam_path = _scenario_file(scenarios_dir, scenario_id, "camera.png")
     if os.path.exists(cam_path):
         cam.imshow(np.array(Image.open(cam_path)))
         cam.set_title("camera", fontsize=10)
