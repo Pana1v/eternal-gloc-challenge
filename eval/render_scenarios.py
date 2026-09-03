@@ -111,8 +111,20 @@ def render_one(scenario_id, gt_T, submissions, map_raster, scenarios_dir,
 
 
 # Scenarios render independently and matplotlib figure work is CPU-bound, so
-# a sequential loop leaves every core but one idle (profiled: rendering is
-# ~90% of this script's wall time on a 40-scenario fixture, ~0.18s/figure).
+# a sequential loop leaves every core but one idle. Measured on the real
+# 40-scenario dev set (quiet host): rendering is 9.96s of a 10.91s total eval
+# wall-clock (score.py + render + report.py), i.e. 91% -- the right target.
+#
+# But a pool only pays for itself once its fixed cost is covered, and that
+# cost is not small here: each spawned worker cold-imports numpy, matplotlib,
+# open3d and PIL from scratch (~2.5s measured, uncontended, single process),
+# before rendering a single figure. At N=40 the entire serial workload is
+# ~10s, so --jobs 16 (os.cpu_count() on an idle 16-core box) measured 22.15s,
+# 2.22x SLOWER than serial -- the import cost dominates. Default is 1 (serial,
+# identical to the pre-parallelization code) for exactly this reason; --jobs
+# is an explicit opt-in, not a free win. The crossover scenario count above
+# which pooling wins is UNMEASURED -- it needs a larger real scenario count
+# than exists in this dev set to observe, not a guess dressed up as a number.
 #
 # Unlike bl_bbs's worker init, which reloads the map from disk per worker
 # because the map itself is the payload, here main() has already reduced the
@@ -154,8 +166,13 @@ def main(argv=None):
     ap.add_argument("--tiers")
     ap.add_argument("--submission", action="append", default=[],
                      metavar="NAME=PATH", help="repeatable: a method name and its submission file")
-    ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1,
-                     help="parallel render workers (1 = serial, no pool)")
+    ap.add_argument("--jobs", type=int, default=1,
+                     help="parallel render workers (default 1 = serial, matches pre-parallelization "
+                          "behaviour). Each worker pays a fixed ~2.5s cold-import cost before rendering "
+                          "anything; at 40 scenarios this loses to serial (measured: --jobs 16 was 2.22x "
+                          "slower than --jobs 1 on a quiet 16-core host). Opt in only once your scenario "
+                          "count is large enough to amortize that cost -- the crossover point is not "
+                          "measured, there just aren't enough real scenarios yet to find it.")
     args = ap.parse_args(argv)
 
     os.makedirs(args.out, exist_ok=True)
