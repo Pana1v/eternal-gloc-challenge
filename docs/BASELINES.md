@@ -134,6 +134,19 @@ of the floor. The doubled weight earns its keep through the above-rack band,
 not through the roof, so this page's phrase "the two ceiling bands" is
 looser than the mechanism.
 
+One caveat before reading anything into a comparison of bands 2 and 3:
+they report the same occupancy to eight decimal places, and their
+rasterized grids are bit-identical. That is the union at work rather than a
+coincidence. Bird's-eye occupancy is a union over a band's height range,
+and one full-length rack beam already covers its row's whole plan
+footprint, so a second beam and every upright beneath it add no new cells.
+Any band holding at least one beam level looks the same from above. Nor is
+that peculiar to the synthetic hall: the released map's beam levels at 1.5,
+3.0, 4.5 and 6.0 metres put at least one full beam in each of those two
+bands too, so they should come out close there as well, separated only by
+pallet overhang, partial rack fill and scan noise. The bands that carry the
+finding above, 4 and 5, are not affected: neither contains racking.
+
 That is a property of real warehouses rather than of this synthetic hall.
 `eval/map_svg.py:16-19`, describing bounds "read off the map's own height
 histogram, not guessed", says of the released map that the floor and the

@@ -87,6 +87,9 @@ RACK_ROWS_Y = np.arange(10.0, 83.0, RACK_PITCH_M)
 RACK_BLOCKS_X = ((14.0, 60.0), (66.0, 112.0), (118.0, 150.0))
 WALL_TOP_M = 11.7
 BAY_PITCH_M = 2.5         # upright spacing, so every bay in a block looks like every other
+# One full-length beam saturates its row's plan-view footprint, so bands 2 and 3 rasterize
+# to bit-identical grids: BEV occupancy is a union over the band, and a second beam adds no
+# cell the first did not. Real racking behaves the same way, so this is not worth "fixing".
 BEAM_LEVELS_M = (1.5, 3.0, 4.5, 6.0)
 RACK_TOP_M = 6.5
 COLUMN_TOP_M = 10.5
