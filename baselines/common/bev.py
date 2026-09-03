@@ -10,6 +10,15 @@ from dataclasses import dataclass
 import numpy as np
 
 
+def build_slice_bands(z_min: float, z_max: float):
+    """5 bands rescaled to the map's z-extent; top two (ceiling layer) weighted 2x per spec."""
+    height = z_max - z_min
+    fracs = [(0.0, 1 / 12), (1 / 12, 3.5 / 12), (3.5 / 12, 6.5 / 12), (6.5 / 12, 9.5 / 12), (9.5 / 12, 1.0)]
+    bands = [(z_min + lo * height, z_min + hi * height) for lo, hi in fracs]
+    weights = [1.0, 1.0, 1.0, 2.0, 2.0]
+    return bands, weights
+
+
 @dataclass
 class BevGrid:
     grid: np.ndarray
