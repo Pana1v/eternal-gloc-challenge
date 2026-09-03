@@ -42,7 +42,6 @@ matplotlib.use("Agg")   # no display in CI or the container; must precede pyplot
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
-from matplotlib.collections import LineCollection
 from PIL import Image
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from scipy.spatial import cKDTree
@@ -372,22 +371,20 @@ def scan_coverage(scan: np.ndarray, bands):
 # one clock scaled to these, so bl_bbs finishes and holds while bl_ga is still working.
 BBS_SEC, GA_SEC = 2.65, 10.27
 FRAMES, FPS = 60, 10
-HOLD_FRAMES = 10         # a verdict card at the end, which is also the loop point
+HOLD_FRAMES = 10         # pause on the final state, which is also the loop point
 DPI = 90                  # the GIF is committed, so pixels are a size decision
 Z_EXAGGERATION = 4.0      # a 12 m ceiling over a 160 m hall is otherwise an invisible sliver
 VIEW = (32.0, -62.0)      # fixed: a rotating camera changes every pixel of every frame,
                           # which is the difference between a 2 MB GIF and a 6 MB one
-# "Still in contention" bar. docs/BASELINES.md uses the same 0.9-of-the-best convention for
-# its alias counter, so the shrinking set in the inset is measured the way the tiers are.
+# The "still in contention" overlay on bl_bbs's top-down panel. docs/BASELINES.md uses the
+# same 0.9-of-the-best convention for its alias counter, so this is measured the way the
+# tiers are.
 CONTENTION = 0.9
 # Above this plan-view occupancy a band is effectively a continuous surface, and demeaning
 # cancels it. Not a synthetic artefact: eval/map_svg.py:16-19 says the released map's floor
 # and ceiling "are continuous surfaces covering every cell", from bounds read off that map's
 # own height histogram.
 SOLID_OCCUPANCY = 0.9
-# A 2 m error is six pixels across a 160 m hall, so the left panel gets a plan-view zoom.
-# Without it the figure asserts that bl_ga missed and then shows a marker on the truth.
-ZOOM_HALF_M = 10.0
 # Racking grey, structure pale red, as docs/BASELINES.md:109-111 describes the report's
 # scenario map. Pale here rather than saturated: the shell is context, not the subject.
 SHELL_COLOR = "#d2d2d2"
@@ -415,18 +412,22 @@ def _clip(segments, z_lo: float, z_hi: float):
     return out
 
 
-def _setup(ax, z_labels=True):
+def _setup(ax, top: bool = False):
+    """Shared axes setup for both viewpoints. `top` swaps in a near-orthographic camera
+    looking straight down the z-axis, so plan-view distances read true instead of foreshortened
+    by perspective; the perspective camera stays fixed per VIEW for the height view."""
     ax.set_xlim(0, LENGTH_M)
     ax.set_ylim(0, WIDTH_M)
     ax.set_zlim(0, HEIGHT_M)
     ax.set_box_aspect((LENGTH_M, WIDTH_M, HEIGHT_M * Z_EXAGGERATION))
-    ax.view_init(*VIEW)
-    ax.set_xticks([0, 80, 160])
-    ax.set_yticks([0, 93])
-    ax.set_zticks([0, 6, 12])
-    if not z_labels:
-        ax.set_zticklabels([])
-    ax.tick_params(labelsize=6, pad=-3)
+    if top:
+        ax.set_proj_type("ortho")
+        ax.view_init(90, -90)
+    else:
+        ax.view_init(*VIEW)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_zticks([])
     for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
         axis.pane.set_alpha(0.0)
     ax.grid(False)
@@ -460,74 +461,25 @@ def _pose(ax, x, y, yaw, color, size, marker="*", filled=True):
 
 def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = FPS,
                 hold: int = HOLD_FRAMES):
-    """One GIF, one clock. Both panels are rebuilt per frame rather than tracked as artists:
-    mplot3d has no usable blitting, and at 60 frames the redraw is not the cost."""
-    # The 3D boxes project wide and flat, so they are given more axes height than the
-    # figure has and allowed to overflow: that crops the dead band under the content
-    # instead of shipping it as committed bytes.
-    fig = plt.figure(figsize=(12.0, 5.5))
-    ax_ga = fig.add_axes((0.005, -0.045, 0.49, 0.92), projection="3d")
-    ax_bbs = fig.add_axes((0.500, -0.045, 0.49, 0.92), projection="3d")
-    ax_zoom = fig.add_axes((0.340, 0.555, 0.150, 0.230))
-    ax_inset = fig.add_axes((0.838, 0.555, 0.150, 0.230))
-    ax_cover = fig.add_axes((0.838, 0.145, 0.150, 0.230))
+    """One GIF, one clock, four axes: bl_ga's population top-down and in perspective on the
+    top row, bl_bbs's band sweep the same way underneath. Every panel is rebuilt per frame
+    rather than tracked as artists: mplot3d has no usable blitting, and at 60 frames the
+    redraw is not the cost. No panel carries text; colour and layout alone say what is what,
+    top row bl_ga's colour, bottom row bl_bbs's, left column plan view, right column height."""
+    fig = plt.figure(figsize=(10.0, 8.0))
+    ax_ga_top = fig.add_axes((0.005, 0.505, 0.49, 0.475), projection="3d")
+    ax_ga_persp = fig.add_axes((0.505, 0.505, 0.49, 0.475), projection="3d")
+    ax_bbs_top = fig.add_axes((0.005, 0.020, 0.49, 0.475), projection="3d")
+    ax_bbs_persp = fig.add_axes((0.505, 0.020, 0.49, 0.475), projection="3d")
 
     history = ga["history"]
     tx, ty, tyaw = TRUE_POSE
     bands, weights = bbs["bands"], bbs["weights"]
     surfaces = bbs["surfaces"]
-    cells = bbs["grid_shape"][0] * bbs["grid_shape"][1]
-    band_notes = ("floor slab and rack feet", "rack beams at 1.5 and 3.0 m",
-                  "rack beams at 4.5 and 6.0 m", "above the racking: columns, mezzanine, silos",
-                  "roof deck, trusses, plant")
-    # plan-view racking inside the zoom window, built once
-    zoom_box = (tx - ZOOM_HALF_M, tx + ZOOM_HALF_M, ty - ZOOM_HALF_M, ty + ZOOM_HALF_M)
-    zoom_rows, zoom_feet = [], []
-    for y in RACK_ROWS_Y:
-        if not zoom_box[2] <= y <= zoom_box[3]:
-            continue
-        for bx0, bx1 in RACK_BLOCKS_X:
-            x0, x1 = max(bx0, zoom_box[0]), min(bx1, zoom_box[1])
-            if x1 <= x0:
-                continue
-            zoom_rows.append([(x0, y), (x1, y)])
-            zoom_feet += [(x, y) for x in np.arange(bx0, bx1 + 1e-9, BAY_PITCH_M)
-                          if x0 <= x <= x1]
-    zoom_feet = np.array(zoom_feet).reshape(-1, 2)
-
-    plan_rows = [[(a[0], a[1]), (b[0], b[1])] for a, b in render["racks"]
-                 if abs(a[2] - b[2]) < 1e-9]
 
     per_band = [_clip(render["racks"], lo, hi) + _clip(render["structure"], lo, hi)
                 for lo, hi in bands]
     below_band = [sum(per_band[:k], []) for k in range(len(bands))]
-
-    truth_fit = ga["truth_fitness"]
-    # The two blind zones are set by the vertical field of view and the mount height, not by
-    # the 70 m range: occlusion and elevation limits are what cap coverage here.
-    floor_blind = bl_ga.SENSOR_HEIGHT_M / np.tan(np.radians(-LIDAR_EL_DEG[0]))
-    roof_blind = (ROOF_Z_M - bl_ga.SENSOR_HEIGHT_M) / np.tan(np.radians(LIDAR_EL_DEG[1]))
-    hall_note = (f"{LENGTH_M:.0f} x {WIDTH_M:.0f} x {HEIGHT_M:.0f} m hall, "
-                 f"{LENGTH_M * WIDTH_M:,.0f} m2 of floor,\n{len(RACK_ROWS_Y)} rack rows at "
-                 f"{RACK_PITCH_M:.1f} m pitch")
-    scatter_note = (f"{hall_note}, sampled by {bl_ga.POPULATION} poses at a "
-                    f"{np.sqrt(LENGTH_M * WIDTH_M / bl_ga.POPULATION):.1f} m "
-                    f"grid-equivalent spacing: coarser than the pitch")
-    fig.text(0.012, 0.980, "bl_ga   sampled search over (x, y, yaw)", fontsize=9.5,
-             va="top", color=GA_COLOR)
-    fig.text(0.507, 0.980, "bl_bbs   exhaustive search, five height bands", fontsize=9.5,
-             va="top", color=BBS_COLOR)
-    fig.text(0.012, 0.945, scatter_note, fontsize=6.8, va="top", color="#555555",
-             linespacing=1.45)
-    fig.text(0.507, 0.945, f"{hall_note}, every placement scored at "
-             f"{bl_bbs.RESOLUTION_M} m and {bl_bbs.YAW_STEP_DEG:.0f} deg", fontsize=6.8,
-             va="top", color="#555555", linespacing=1.45)
-    info_ga = fig.text(0.012, 0.872, "", fontsize=7.6, va="top", color="#222222",
-                       linespacing=1.5)
-    info_bbs = fig.text(0.507, 0.872, "", fontsize=7.6, va="top", color="#222222",
-                        linespacing=1.5)
-    footer = fig.text(0.5, 0.005, "", ha="center", va="bottom", fontsize=6.8,
-                      color="#333333", linespacing=1.5)
 
     def draw(frame):
         verdict = frame >= frames
@@ -536,167 +488,58 @@ def render_gif(out_path: str, ga, bbs, render, frames: int = FRAMES, fps: int = 
         gen = min(int(round(t * (len(history) - 1))), len(history) - 1)
         band = max(1, min(int(np.ceil(min(1.0, elapsed / BBS_SEC) * len(bands))), len(bands)))
 
-        ax_ga.clear()
-        ax_bbs.clear()
-        ax_zoom.clear()
-        ax_inset.clear()
-        ax_cover.clear()
+        for ax in (ax_ga_top, ax_ga_persp, ax_bbs_top, ax_bbs_persp):
+            ax.clear()
 
-        # --- left: the population -----------------------------------------------------
+        # --- bl_ga: the population, drawn top-down and in perspective ------------------
         state = history[gen]
         poses, fitness = state["poses"], state["fitness"]
         elites = np.argsort(fitness)[::-1][:bl_ga.ELITE_K]
         floor = np.full(len(poses), bl_ga.SENSOR_HEIGHT_M)
-        _setup(ax_ga)
-        _shell(ax_ga, render)
-        ax_ga.scatter(poses[:, 0], poses[:, 1], floor, s=5.0, c=GA_COLOR,
-                      depthshade=False, linewidths=0)
-        ax_ga.scatter(poses[elites, 0], poses[elites, 1], floor[elites], s=16.0, c=GA_COLOR,
-                      depthshade=False, edgecolors="black", linewidths=0.35)
-        _pose(ax_ga, tx, ty, tyaw, TRUTH_COLOR, 10)
         best = poses[fitness.argmax()]
-        ga_err = float(np.hypot(best[0] - tx, best[1] - ty))
 
-        if verdict:
-            for hx, hy, hyaw in ga["hypotheses"]:
-                _pose(ax_ga, hx, hy, hyaw, GA_COLOR, 11, marker="o", filled=False)
-            info_ga.set_text(
-                f"done: {(bl_ga.GENERATIONS + 1) * bl_ga.POPULATION:,} poses evaluated, "
-                f"best inlier fraction {fitness.max():.3f} against {truth_fit:.3f} "
-                f"at the truth\n"
-                f"{len(ga['hypotheses'])} modes survive the {bl_ga.HYPOTHESIS_MIN_SEP_M:.0f} m "
-                f"separation filter, {ga['n_submitted']} of them clears the confidence "
-                f"filter\n"
-                f"submitted pose {ga_err:.2f} m from the truth: the right aisle, the wrong "
-                f"place along it")
-        else:
-            info_ga.set_text(
-                f"generation {gen} of {bl_ga.GENERATIONS}   "
-                f"{(gen + 1) * bl_ga.POPULATION:,} poses evaluated\n"
-                f"jitter {state['sigma_xy']:.3f} m / {state['sigma_yaw']:.2f} deg   "
-                f"best inlier fraction {fitness.max():.3f}\n"
-                f"best pose {ga_err:.2f} m from the truth")
+        for ax, top in ((ax_ga_top, True), (ax_ga_persp, False)):
+            _setup(ax, top=top)
+            _shell(ax, render)
+            ax.scatter(poses[:, 0], poses[:, 1], floor, s=5.0, c=GA_COLOR,
+                       depthshade=False, linewidths=0)
+            ax.scatter(poses[elites, 0], poses[elites, 1], floor[elites], s=16.0, c=GA_COLOR,
+                       depthshade=False, edgecolors="black", linewidths=0.35)
+            # an open ring on the population's own best, so convergence is visible without
+            # reading a fitness number off the frame
+            _pose(ax, best[0], best[1], best[2], GA_COLOR, 10, marker="o", filled=False)
+            _pose(ax, tx, ty, tyaw, TRUTH_COLOR, 10)
+            if verdict:
+                for hx, hy, hyaw in ga["hypotheses"]:
+                    _pose(ax, hx, hy, hyaw, GA_COLOR, 11, marker="o", filled=False)
 
-        # --- left inset: the same scene at a scale where 2 m is visible ----------------
-        ax_zoom.add_collection(LineCollection(zoom_rows, colors="#c4c4c4", linewidths=1.6))
-        ax_zoom.scatter(zoom_feet[:, 0], zoom_feet[:, 1], s=5.0, c="#8c8c8c", linewidths=0,
-                        marker="|")
-        inside = ((np.abs(poses[:, 0] - tx) <= ZOOM_HALF_M)
-                  & (np.abs(poses[:, 1] - ty) <= ZOOM_HALF_M))
-        ax_zoom.scatter(poses[inside, 0], poses[inside, 1], s=6.0, c=GA_COLOR, linewidths=0)
-        if abs(best[0] - tx) <= ZOOM_HALF_M and abs(best[1] - ty) <= ZOOM_HALF_M:
-            # the dotted line back to the truth, as in eval/render_scenarios.py
-            ax_zoom.plot([best[0], tx], [best[1], ty], color=GA_COLOR, linestyle=":",
-                         linewidth=0.9)
-            ax_zoom.plot([best[0]], [best[1]], marker="o", markersize=6,
-                         markerfacecolor="none", markeredgecolor=GA_COLOR,
-                         markeredgewidth=1.1)
-        ax_zoom.plot([tx], [ty], marker="*", color=TRUTH_COLOR, markersize=7,
-                     markeredgewidth=0.0)
-        ax_zoom.set_xlim(zoom_box[0], zoom_box[1])
-        ax_zoom.set_ylim(zoom_box[2], zoom_box[3])
-        ax_zoom.set_aspect("equal")
-        ax_zoom.set_xticks([])
-        ax_zoom.set_yticks([])
-        ax_zoom.set_title(f"zoom, {2 * ZOOM_HALF_M:.0f} m across: best pose vs truth",
-                          fontsize=5.9, pad=2.0)
-        for spine in ax_zoom.spines.values():
-            spine.set_linewidth(0.4)
-
-        # --- right: the bands ---------------------------------------------------------
-        lo, hi = bands[band - 1]
-        _setup(ax_bbs, z_labels=False)
-        _shell(ax_bbs, render, done=below_band[band - 1], active=per_band[band - 1])
+        # --- bl_bbs: the band sweep, drawn top-down and in perspective ------------------
         surface = surfaces[band - 1]
         peak = float(surface.max())
-        if peak > 0.0:
-            # an open ring, so it reads as agreement when it lands on the truth's star
-            i, j = np.unravel_index(surface.argmax(), surface.shape)
-            _pose(ax_bbs, i * bl_bbs.RESOLUTION_M, j * bl_bbs.RESOLUTION_M,
-                  bbs["pose"][2], BBS_COLOR, 9, marker="o", filled=False)
-        _pose(ax_bbs, tx, ty, tyaw, TRUTH_COLOR, 10)
-        bbs_err = float(np.hypot(bbs["pose"][0] - tx, bbs["pose"][1] - ty))
-        if verdict:
-            sparse = [k + 1 for k, o in enumerate(bbs["occupancy"])
-                      if o <= SOLID_OCCUPANCY and weights[k] > 1.0]
-            info_bbs.set_text(
-                f"done in {BBS_SEC:.2f} s, all {len(bands)} bands folded in, all "
-                f"{bbs['placements']:,} placements scored\n"
-                f"the global maximum over every placement, not a sampled peak\n"
-                f"of the two doubled bands only band {sparse[0]} is sparse enough to survive "
-                f"demeaning\n"
-                f"winning pose {bbs_err:.2f} m from the truth, one BEV cell, pre-ICP")
-        else:
-            occ = bbs["occupancy"][band - 1]
-            info_bbs.set_text(
-                f"band {band} of {len(bands)}   z {lo:.2f} to {hi:.2f} m   "
-                f"weight {weights[band - 1]:.0f}x\n"
-                f"{band_notes[band - 1]}\n"
-                f"map occupancy {occ:.3f}: "
-                + ("near-solid, demeans to almost nothing" if occ > SOLID_OCCUPANCY
-                   else "sparse, survives demeaning") + "\n"
-                f"all {bbs['placements']:,} placements scored, "
-                f"{bbs['placements'] // 12300:,}x bl_ga's 12,300")
+        contenders = np.argwhere(surface >= CONTENTION * peak) if peak > 0.0 else None
 
-        # --- inset: how many placements are still tied --------------------------------
-        if peak <= 0.0:
-            in_play = cells
-            ax_inset.text(0.5, 0.5, "all of them:\na fully occupied band\ndemeans to "
-                          "exactly zero", ha="center", va="center", fontsize=6.0,
-                          color="#222222", transform=ax_inset.transAxes)
-        else:
-            contenders = np.argwhere(surface >= CONTENTION * peak)
-            in_play = len(contenders)
-            ax_inset.scatter(contenders[:, 0] * bl_bbs.RESOLUTION_M,
-                             contenders[:, 1] * bl_bbs.RESOLUTION_M,
-                             s=2.2, c=BBS_COLOR, linewidths=0)
-        ax_inset.plot([tx], [ty], marker="*", color=TRUTH_COLOR, markersize=5.5,
-                      markeredgewidth=0.0)
-        ax_inset.set_xlim(0, LENGTH_M)
-        ax_inset.set_ylim(0, WIDTH_M)
-        ax_inset.set_aspect("equal")
-        ax_inset.set_xticks([])
-        ax_inset.set_yticks([])
-        ax_inset.set_title(f"within {100 - CONTENTION * 100:.0f}% of the best: {in_play:,}",
-                           fontsize=5.9, pad=2.0)
-        for spine in ax_inset.spines.values():
-            spine.set_linewidth(0.4)
+        for ax, top in ((ax_bbs_top, True), (ax_bbs_persp, False)):
+            _setup(ax, top=top)
+            _shell(ax, render, done=below_band[band - 1], active=per_band[band - 1])
+            if peak > 0.0:
+                # an open ring, so it reads as agreement when it lands on the truth's star
+                i, j = np.unravel_index(surface.argmax(), surface.shape)
+                _pose(ax, i * bl_bbs.RESOLUTION_M, j * bl_bbs.RESOLUTION_M,
+                      bbs["pose"][2], BBS_COLOR, 9, marker="o", filled=False)
+            _pose(ax, tx, ty, tyaw, TRUTH_COLOR, 10)
 
-        # --- right lower inset: where this band's evidence came from ------------------
-        cover = bbs["coverage"][band - 1]
-        ax_cover.add_collection(LineCollection(plan_rows, colors="#dcdcdc", linewidths=0.5))
-        if cover["returns"]:
-            ax_cover.scatter(cover["xy"][:, 0], cover["xy"][:, 1], s=0.5, c=BBS_COLOR,
-                             linewidths=0)
-        ax_cover.plot([tx], [ty], marker="*", color=TRUTH_COLOR, markersize=5.5,
-                      markeredgewidth=0.0)
-        ax_cover.set_xlim(0, LENGTH_M)
-        ax_cover.set_ylim(0, WIDTH_M)
-        ax_cover.set_aspect("equal")
-        ax_cover.set_xticks([])
-        ax_cover.set_yticks([])
-        ax_cover.set_title(f"band {band} evidence: {cover['pct']:.1f}% of the floor",
-                           fontsize=5.9, pad=2.0)
-        for spine in ax_cover.spines.values():
-            spine.set_linewidth(0.4)
+        # placements still within CONTENTION of the best, in plan view only: this is what
+        # collapses from "most of the band" to "one cell" as the sweep narrows, and it is
+        # exactly where the aliasing bays line up. A fully occupied band demeans to zero
+        # score everywhere, so band 1 draws nothing here rather than a stand-in for that.
+        if contenders is not None:
+            cx = contenders[:, 0] * bl_bbs.RESOLUTION_M
+            cy = contenders[:, 1] * bl_bbs.RESOLUTION_M
+            ax_bbs_top.scatter(cx, cy, np.full(len(cx), bl_ga.SENSOR_HEIGHT_M), s=2.0,
+                               c=BBS_COLOR, depthshade=False, linewidths=0)
 
         if verdict:
-            footer.set_text(
-                "on the released dev split bl_bbs scores 97.74 with SR@fine 0.975 and "
-                "bl_ga scores 22.36 with SR@fine 0.025 (docs/BASELINES.md), and the repo "
-                "credits the exhaustive search for the difference\n"
-                "this run is synthetic geometry, one scenario, and reproduces the same "
-                "two outcomes: an exact match against a confident near miss")
             return
-        footer.set_text(
-            f"{elapsed:.2f} s of {GA_SEC:.2f} s on one clock scaled to the measured "
-            f"sec/scenario in docs/BASELINES.md; bl_bbs finishes at {BBS_SEC:.2f} s despite "
-            f"scoring {bbs['placements'] // 12300:,}x more placements\n"
-            f"both searches are SE(2) with z pinned at {bl_ga.SENSOR_HEIGHT_M:.1f} m   |   "
-            f"z drawn {Z_EXAGGERATION:.0f}x   |   black star: the truth   |   "
-            f"the {LIDAR_EL_DEG[0]:.0f} to +{LIDAR_EL_DEG[1]:.0f} deg vertical field of view "
-            f"blinds the sensor to the floor within {floor_blind:.1f} m and to the roof "
-            f"within {roof_blind:.1f} m, so no band sees the whole hall")
 
     animation = FuncAnimation(fig, draw, frames=frames + hold, interval=1000 // fps)
     animation.save(out_path, writer=PillowWriter(fps=fps), dpi=DPI)
@@ -790,6 +633,23 @@ def verify(points, ga, bbs) -> bool:
     print(f"           So a pose picked at random already 'explains' "
           f"{opening.mean() * 100:.0f}% of the scan. That floor is exactly what demeaning "
           f"removes.")
+
+    print("\n6. per-band map occupancy and scan evidence, no longer drawn on the animation")
+    band_notes = ("floor slab and rack feet", "rack beams at 1.5 and 3.0 m",
+                  "rack beams at 4.5 and 6.0 m", "above the racking: columns, mezzanine, silos",
+                  "roof deck, trusses, plant")
+    sparse_doubled = [k + 1 for k, o in enumerate(bbs["occupancy"])
+                      if o <= SOLID_OCCUPANCY and weights[k] > 1.0]
+    for k, ((lo, hi), w, occ, cover, note) in enumerate(zip(bands, weights, bbs["occupancy"],
+                                                             bbs["coverage"], band_notes), 1):
+        state = "near-solid, demeans to almost nothing" if occ > SOLID_OCCUPANCY \
+            else "sparse, survives demeaning"
+        print(f"   band {k}  z {lo:5.2f}-{hi:5.2f}  weight {w:.0f}x  {note}")
+        print(f"           map occupancy {occ:.3f}: {state}   |   scan evidence covers "
+              f"{cover['pct']:.1f}% of the floor ({cover['returns']} returns)")
+    print(f"   of the two doubled bands only band {sparse_doubled[0]} is sparse enough to "
+          f"survive demeaning, which is why the doubled weight earns its keep there and not "
+          f"on the roof")
 
     print(f"\n{'all checks passed' if ok else 'CHECKS FAILED'}")
     return ok

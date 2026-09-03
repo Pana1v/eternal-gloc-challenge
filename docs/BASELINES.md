@@ -152,10 +152,10 @@ the tier column as descriptive, not as a difficulty ranking.
 The tables above say which baseline wins. They do not show what either one
 does. `tools/render_search_animation.py` writes an animation that does, on
 synthetic geometry it generates itself, so it reproduces from a clean
-checkout with no map and no scenarios. Both panels run the real searches:
-the left is `bl_ga`'s own population loop, genetic operators and fitness
-function, the right is the exhaustive Fourier correlation from
-`baselines/common/bev.py` with band edges from `bl_bbs.build_slice_bands`.
+checkout with no map and no scenarios. Both halves run the real searches:
+`bl_ga`'s own population loop, genetic operators and fitness function on
+one, the exhaustive Fourier correlation from `baselines/common/bev.py` with
+band edges from `bl_bbs.build_slice_bands` on the other.
 
 Both methods search east, north and heading with height pinned at the rig's
 1.0 metre mount. `bl_ga`'s three-dimensional scoring is a property of its
@@ -168,14 +168,25 @@ report's scenario map. The truth is a black star, `bl_ga` is orange and
 horizontal is to scale, on a 160 by 93 by 12 metre hall with 14,880 square
 metres of floor.
 
-Three insets carry what the hall-scale view cannot show. Top left is a
-20 metre plan view around the truth, because a two metre error is a handful
-of pixels across a 160 metre hall. Top right is the set of placements still
-scoring within ten per cent of the best, the quantity that has to collapse
-to one before the search has decided anything. Bottom right is where the
-current band's evidence physically comes from, in plan view.
+The frame carries no on-screen text, so this paragraph is the caption. It is
+a 2x2 grid: the top row is `bl_ga`, the bottom row is `bl_bbs`, and each row
+is split into a top-down plan view on the left, a near-orthographic camera
+looking straight down the z-axis, and the perspective view described above
+on the right. Both views in a row share the same state at every instant, so
+the plan view shows where things sit in the hall while the perspective view
+shows how tall they are, on the one shared clock.
 
-That third inset answers a question the height axis cannot. A band can be
+The bottom-left panel carries one thing the perspective view cannot: as each
+band is scored, the placements still within ten per cent of the best are
+drawn on the plan view too. That set is the quantity that has to collapse to
+one cell before the search has decided anything, and drawing it in plan view
+rather than as a count doubles it as a picture of where the aliasing bays
+line up, since the surviving cells cluster at the rack pitch rather than at
+random. A fully occupied band demeans to exactly zero everywhere, so the
+floor band draws no such points at all.
+
+The height axis alone cannot say how much of the floor each band's evidence
+actually reaches; `--verify` now prints that, band by band. A band can be
 tall and still be told very little. The lidar's vertical field of view runs
 -15 to +45 degrees from a 1.0 metre mount, which blinds it to the floor
 within 3.7 metres and to the roof within 10.7 metres, and the racking
@@ -184,15 +195,15 @@ of the floor area apiece, and the ceiling band, which has clear sightlines
 above the racking, sees a quarter of it on twenty concentric beam rings. The
 70 metre range is not the binding constraint here; occlusion is.
 
-Coverage is not the same as evidence, though, and read together the two
-right-hand insets show why. The ceiling band sees more of the floor than any
-other, but a map's ceiling is a near-solid deck: its plan-view occupancy
-here is 0.993, so demeaning cancels almost all of it and the doubled weight
-multiplies what little survives. The band that discriminates is the sparse
-one above the racking, at 0.211 occupancy, despite seeing only 3.2 per cent
-of the floor. The doubled weight earns its keep through the above-rack band,
-not through the roof, so this page's phrase "the two ceiling bands" is
-looser than the mechanism.
+Coverage is not the same as evidence, though, and the same `--verify` output
+shows why. The ceiling band sees more of the floor than any other, but a
+map's ceiling is a near-solid deck: its plan-view occupancy is 0.993, so
+demeaning cancels almost all of it and the doubled weight multiplies what
+little survives. The band that discriminates is the sparse one above the
+racking, at 0.211 occupancy, despite seeing only 3.2 per cent of the floor.
+The doubled weight earns its keep through the above-rack band, not through
+the roof, so this page's phrase "the two ceiling bands" is looser than the
+mechanism.
 
 One caveat before reading anything into a comparison of bands 2 and 3:
 they report the same occupancy to eight decimal places, and their
