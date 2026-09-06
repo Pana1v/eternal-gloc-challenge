@@ -24,12 +24,15 @@ perspective, on one shared clock:
 Requires Docker; everything else runs inside the image.
 
 1. **Get the tools**: `docker build -f docker/runtime.Dockerfile -t eternal-gloc-runtime .`
-2. **See a scenario**: `python tools/viewer.py scenarios/dev/A/000000 --map map/prior_map.pcd`.
+2. **Get the map**: `./tools/fetch_map.sh`. The 40 Track A dev scenarios and
+   their ground truth are already in `scenarios/dev/`; the prior map is 202 MB,
+   past what a repository can track, so it downloads from a release.
+3. **See a scenario**: `python tools/viewer.py scenarios/dev/A/000000 --map map/prior_map.pcd`.
    This opens the scan floating disconnected from the map (the problem,
    visually) and the camera image; add `--show-gt "<pose line>"` from
    `scenarios/dev/gt/A.txt` to see it snap into place.
-3. **Run a baseline**: `python baselines/bl_bbs/run.py --scenarios scenarios/dev/A --map map/prior_map.pcd --out submission.txt`
-4. **Self-score**: `python eval/score.py --submission submission.txt --gt scenarios/dev/gt/A.txt --track A --out-dir results`.
+4. **Run a baseline**: `python baselines/bl_bbs/run.py --scenarios scenarios/dev/A --map map/prior_map.pcd --out submission.txt`
+5. **Self-score**: `python eval/score.py --submission submission.txt --gt scenarios/dev/gt/A.txt --track A --out-dir results`.
    This is the exact same scoring code used for the official eval.
 
 ## Read next

@@ -28,3 +28,6 @@ htmlcov/
 # Build outputs and temporary files
 *.o
 *.so
+
+# Fetched by tools/fetch_map.sh, not tracked: 202 MB, over the blob limit
+map/
