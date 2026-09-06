@@ -19,8 +19,12 @@ if [ -f "$DEST" ] && echo "$SHA256  $DEST" | sha256sum -c --status; then
     exit 0
 fi
 
+# A progress bar is worth having at a prompt and is noise in a CI log, where
+# curl draws it to a redirected stderr one line per refresh.
+[ -t 2 ] && PROGRESS=--progress-bar || PROGRESS=-sS
+
 echo "downloading 202 MB from $TAG ..."
-curl -fL --progress-bar -o "$DEST" "$URL"
+curl -fL "$PROGRESS" -o "$DEST" "$URL"
 
 # A truncated or proxy-mangled download reads as a valid but wrong map, and the
 # baselines would score badly for a reason no one would think to look for.
