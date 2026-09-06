@@ -71,6 +71,9 @@ and do not compare two variants of it on one seed each: the unweighted fitness
 alone spans 19.96-29.45 across seeds, which is wider than the gap between the
 fitness variants below.
 
+`bl_ga` also has an off-by-default `--crossover` flag; the row above is the
+mutation-only search it ships with. What crossover measured is below.
+
 `bl_vpr_rerank` ties `bl_bbs` because it was handed `bl_bbs` output, which
 carries one hypothesis per scenario. A list of one cannot be reordered, and a
 single weight must normalize to 1.0, so it returned its input unchanged. To
@@ -121,6 +124,96 @@ draws 300 initial poses plus 30 per generation, which puts the chance of any
 draw landing in it near 2%. That is the same order as the success rate, and no
 reweighting of fitness changes it.
 
+### What crossover does to `bl_ga`
+
+`bl_ga` breeds by mutation only. `--crossover` adds a recombination step to
+that breeding, splitting the child budget evenly between recombined and
+jittered children and leaving truncation selection alone, so a measured
+difference has one candidate cause. Three operators, all sharing one body
+because they differ only in how the mixing coefficient is drawn:
+
+| mode | child | coefficient |
+| --- | --- | --- |
+| `uniform` | each gene copied from either parent | `{0, 1}` per gene |
+| `blend` | one arithmetic interpolation of both parents | one `U(0, 1)` |
+| `blx` | BLX-alpha, the parents' own spread widened by alpha | `U(-a, 1+a)` per gene |
+
+Yaw is interpolated along the shorter arc. A straight average of 179 and
+-179 degrees is 0, the opposite heading, and nothing downstream would flag
+it. `blx` additionally refuses parents more than one rack pitch apart and
+jitters those instead, since two elites that far apart are competing
+aliases and their blend is the empty aisle between two racks.
+
+The default is `none`, which skips the operator rather than calling it with
+a zero-length child budget, so the control arm leaves the RNG stream
+untouched and is bitwise the pre-crossover baseline. Checked against
+`git show`'s copy of the old file on real scenarios, and seed 0 reproduces
+the published 27.96 exactly.
+
+Four arms, five matched seeds, all 40 Track A dev scenarios, 800 searches:
+
+| arm | mean score | range over seeds | SR@fine | seeds leading control |
+| --- | --- | --- | --- | --- |
+| `none` | 30.70 | 27.96-32.05 | 0.130 | - |
+| `uniform` | 31.82 | 26.43-41.67 | 0.170 | 2/5 |
+| `blend` | 26.18 | 24.06-28.44 | 0.105 | 0/5 |
+| `blx` | 25.35 | 20.86-30.43 | 0.085 | 0/5 |
+
+`blend` and `blx` are worse, and consistently so: neither leads the control
+on any seed. `uniform` has the better mean, but it leads on two seeds out of
+five and nearly doubles the spread, and the mean is carried by one draw of
+41.67. Scenario by scenario at matched seeds it turns 26 misses into hits and
+18 hits into misses out of 200 pairs, which a sign test does not separate
+from chance (p = 0.29; on the pre-ICP hit/miss pairing below, 26 against 17,
+p = 0.22). Against the bar the z-banding change had to clear,
+leading on all five seeds, none of the three operators clears it.
+
+The score alone would not have settled that, because crossover has a second
+route to the number. Between the search and the score sit `distinct_top`,
+`confident_subset` and per-hypothesis ICP, so an operator that changes
+population diversity changes how many hypotheses are submitted, changes the
+weight split and moves the loss without the search having improved at all.
+It does exactly that: the control submits more than one hypothesis in 14% of
+runs, and every crossover arm in 1% or less. Recombining elites with each
+other homogenises the elite pool, which is the diversity the hedge is drawn
+from. It costs nothing here only because `oracle@fine` equals `SR@fine` on
+all four arms, as it does for every method in the table above: the alternate
+hypotheses never held an answer the primary missed. So the score does track
+the search, and the pre-ICP population confirms it directly. Measured before
+ICP, the best pose lands within 0.5 m of truth in 0.125 of control runs,
+0.170 `uniform`, 0.100 `blend`, 0.085 `blx`, and the search never enters the
+true basin at all in 0.83, 0.82, 0.88 and 0.91 of runs respectively.
+
+Why so little happens is the same reason z-banding could not help either.
+Crossover is a bet that the genome splits into parts that are good
+independently, so that a good part of one parent can be combined with a good
+part of another. This genome is `(x, y, yaw)` on an aliased map: a correct
+`x` is worth nothing at the wrong `yaw`, and two elites on different rack
+rows are competing answers rather than two halves of one. `blend` averages
+those two answers into the aisle between them, which is what its consistent
+loss looks like. `blx` was the one with a mechanism worth testing, letting
+the population's own spread size the step instead of the hand-tuned
+`SIGMA_DECAY` anneal, and its alias gate keeps it from averaging across rack
+rows, but it converges the population faster and enters the true basin less
+often than plain mutation does. Underneath all three sits the constraint
+from the previous section: the basin around the true pose is under a metre
+wide in a 161 by 98 m footprint, and 300 initial draws plus 30 per
+generation put the chance of any draw landing in it near 2%. No reproduction
+operator changes that, for the same reason no reweighting of fitness did.
+What would is a proposal distribution that is not uniform over the
+footprint, which is what `bl_bbs` gets for free by being exhaustive.
+
+Reproduce the score and SR columns with `--crossover {none,uniform,blend,blx}`
+over `--seed 0..4`, scoring each run with `eval/score.py`. The pre-ICP
+columns, the basin-entry rates and the hypothesis counts are not reachable
+that way: `run_scenario` returns only what survives `distinct_top`,
+`confident_subset` and ICP, so those came from a one-off harness that
+replicated its body with the population instrumented, importing every
+operator from `bl_ga`. That harness is not in the repo. Recombination adds
+no tree queries, so it has no measurable cost; the arms were run
+concurrently on one host and their timings are not comparable to the table
+above.
+
 ## Per-tier breakdown
 
 Tiers come from a measured alias count: T1 has none, T2 at most three, T3
@@ -150,9 +243,12 @@ the tier column as descriptive, not as a difficulty ranking.
 ## How the two searches differ
 
 The tables above say which baseline wins. They do not show what either one
-does. `tools/render_search_animation.py` writes an animation that does, on
-synthetic geometry it generates itself, so it reproduces from a clean
-checkout with no map and no scenarios. Both columns run the real searches:
+does, and a single score hides that `bl_ga`'s result is close to a coin
+toss. `tools/render_search_animation.py` writes an animation that shows
+both, running each method twice: once on scenario `000030`, which `bl_ga`
+finds on three seeds of five, and once on `000010`, which it finds on none.
+Both at `bl_ga`'s shipped default seed, so neither panel is a seed chosen to
+flatter or damn it. Both columns run the real searches:
 the left is `bl_ga`'s own population loop, genetic operators and fitness
 function, the right is the exhaustive Fourier correlation from
 `baselines/common/bev.py` with band edges from `bl_bbs.build_slice_bands`.
@@ -162,11 +258,14 @@ Both methods search east, north and heading with height pinned at the rig's
 fitness function, not of its search space, so every pose in every panel sits
 on the floor plane.
 
-Racking is grey and walls, columns and roof structure are pale red, as in the
-report's scenario map. The truth is a black star, `bl_ga` is orange and
-`bl_bbs` is blue. Height is drawn four times exaggerated; everything
-horizontal is to scale, on a 160 by 93 by 12 metre hall with 14,880 square
-metres of floor.
+The hall is drawn from the released map itself, thinned to a few thousand
+points. Thinned evenly across the height bands rather than uniformly: two
+thirds of the map is the floor slab and the roof deck, and a uniform sample
+of it is grey noise in which the racking never appears. That is a drawing
+decision only; both searches score against all 8.8 million points. The truth
+is a black star, `bl_ga` is orange and `bl_bbs` is blue. Height is drawn four
+times exaggerated; everything horizontal is to scale, on the map's own 161 by
+98 by 12 metre extent.
 
 The layout is a 2x2 grid under the title "Global Localization", one method
 per column: `bl_ga` on the left under the heading "Genetic Evolution",
@@ -175,11 +274,22 @@ upper panel of each column is a top-down plan view, a near-orthographic
 camera looking straight down the z-axis; the lower panel is the
 perspective view. Both update together, so the plan view shows where
 things sit in the hall while the perspective view shows how tall they are.
-The title, the two headings and the elapsed-time readout at the foot are
-the only text in the frame; everything else is geometry, motion and
-colour. Once `bl_bbs` finishes, the readout also names the gap to `bl_ga`'s
+A caption under the headings names the scenario being run and how many of
+the five seeds `bl_ga` found it on, so one run is never read as a rate.
+Once `bl_bbs` finishes, the readout also names the gap to `bl_ga`'s
 finish, since the two panels stop showing new work at very different times
 and the gap itself is part of the coverage story below.
+
+The inset at the foot of `bl_ga`'s column is the one thing the original
+figure could not show: its fitness split into the five height bands it
+averages over, recomputed for the population's best pose every generation.
+On `000030` the bars fill together and stay full. On `000010` they are the
+whole explanation of the failure: at a pose 142 metres from the truth,
+facing almost exactly backwards, the search still explains 0.95 of the floor
+band and around 0.8 of the two doubled ceiling bands. Nothing in that profile
+says "wrong". A hall built to look the same everywhere gives an aliased pose
+almost the same bars as the right one, which is why the search ranks it top
+and why no reweighting of those five numbers fixes it.
 
 The dashed grey circle is the lidar's 70 metre maximum range, centred on
 the true pose because that is where the scan was taken. Nothing outside it
