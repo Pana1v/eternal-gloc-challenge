@@ -2,7 +2,9 @@
 """B4 baseline: naive evolutionary search over SE(2) poses. Scatter random pose guesses,
 score by how much of the scan they explain, keep the best, mutate into the next
 generation, repeat. Coverage is averaged per height band so the sparse ceiling structure
-is not drowned out by the floor and roof deck, which match almost anywhere.
+is not drowned out by the floor and roof deck, which match almost anywhere. --crossover
+adds recombination to the breeding step; it is off by default and docs/BASELINES.md
+reports what it measured.
 
 Unlike B1's exhaustive FFT correlation, this only pays for poses it samples, so it scales
 past B1's grid limit, but it's stochastic and can converge into a rack-level alias; the
@@ -41,6 +43,13 @@ WEIGHT_DECIMALS = 4          # SubmissionWriter formats weights as %.4f
 ICP_CROP_RADIUS_M = 5.0
 SENSOR_HEIGHT_M = 1.0    # fixed rig height (docs/SENSORS.md), as in bl_bbs/bl_retrieval_gicp
 DEFAULT_SEED = 0
+# "none" | "uniform" | "blend" | "blx". Off by default: the shipped baseline number and
+# tools/render_search_animation.py both describe a mutation-only search, and n_cross == 0
+# leaves the RNG stream untouched, so "none" is bitwise the pre-crossover baseline.
+CROSSOVER = "none"
+CROSSOVER_RATE = 0.5         # share of the child budget made by recombination, not jitter
+BLX_ALPHA = 0.5              # how far outside the parent interval a BLX child may land
+BLX_MAX_PARENT_SEP_M = 5.0   # one rack pitch: past this, two elites are different aliases
 # "per-band" | "per-point" | "none". Per-band measures ~7 points of score above the
 # unweighted "none" on the dev set at no compute cost; see scan_point_weights and
 # docs/BASELINES.md for why the per-point reading of bl_bbs's weights does nothing.
@@ -126,6 +135,58 @@ def mutate(elites: np.ndarray, rng, n: int, sigma_xy: float, sigma_yaw: float) -
     return children
 
 
+def recombine(a: np.ndarray, b: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """child = a + t * (b - a), gene by gene.
+
+    The three crossover operators differ only in how t is drawn, so they share this one
+    body: {0, 1} per gene is a uniform swap, one U(0, 1) for all three genes is an
+    arithmetic blend, U(-alpha, 1 + alpha) per gene is BLX-alpha.
+
+    Yaw travels the short way round the circle. A straight average of 179 and -179 degrees
+    is 0, the opposite heading, so the pair is re-expressed as a plus a signed arc before
+    interpolating and the result is wrapped back into (-pi, pi].
+    """
+    children = a + t * (b - a)
+    arc = np.arctan2(np.sin(b[:, 2] - a[:, 2]), np.cos(b[:, 2] - a[:, 2]))
+    yaw = a[:, 2] + t[:, -1] * arc
+    children[:, 2] = np.arctan2(np.sin(yaw), np.cos(yaw))
+    return children
+
+
+def crossover(elites: np.ndarray, rng, n: int, mode: str,
+               sigma_xy: float, sigma_yaw: float) -> np.ndarray:
+    """n children, each recombining two randomly chosen elites.
+
+    Crossover assumes a genome splits into parts that are good independently. This genome
+    is three coupled genes on an aliased map, where a correct x is worth nothing at the
+    wrong yaw, so that premise is weak here and the operators are a measurement, not an
+    improvement (see docs/BASELINES.md).
+
+    "blx" is the one with a mechanism to argue for: it draws the child from an interval set
+    by how far apart the parents already are, which lets the population's own spread size
+    the step instead of the hand-tuned SIGMA_DECAY anneal. It only earns that if the
+    parents are on the same alias, so pairs more than one rack pitch apart, whose blend
+    would land in the empty aisle between two racks, are jittered as usual instead.
+    """
+    a = elites[rng.integers(0, len(elites), n)]
+    b = elites[rng.integers(0, len(elites), n)]
+
+    if mode == "uniform":
+        t = rng.integers(0, 2, (n, 3)).astype(np.float64)
+    elif mode == "blend":
+        t = rng.random((n, 1))
+    else:
+        t = rng.uniform(-BLX_ALPHA, 1.0 + BLX_ALPHA, (n, 3))
+
+    children = recombine(a, b, t)
+    if mode != "blx":
+        return children
+
+    far = np.hypot(a[:, 0] - b[:, 0], a[:, 1] - b[:, 1]) > BLX_MAX_PARENT_SEP_M
+    children[far] = mutate(a[far], rng, int(far.sum()), sigma_xy, sigma_yaw)
+    return children
+
+
 def distinct_top(poses: np.ndarray, fitness: np.ndarray, n: int, min_sep: float):
     """The n best poses at least min_sep apart in xy; after the sigma anneal converges
     the elite pool, a plain top-n would submit the same answer three times and waste the hedge."""
@@ -156,21 +217,26 @@ def confident_subset(poses: np.ndarray, fitness: np.ndarray, keep_ratio: float):
 
 def evolve(scan: np.ndarray, tree: cKDTree, bounds, rng,
             population: int = POPULATION, generations: int = GENERATIONS,
-            point_weights: np.ndarray = None):
+            point_weights: np.ndarray = None, crossover_mode: str = CROSSOVER):
     """Runs the search and returns (poses, fitness) for the final population."""
     poses = random_population(rng, population, bounds)
     sigma_xy, sigma_yaw = SIGMA_XY_M, SIGMA_YAW_DEG
+
+    n_children = population - ELITE_K - IMMIGRANTS
+    n_cross = 0 if crossover_mode == "none" else int(round(CROSSOVER_RATE * n_children))
 
     for _ in range(generations):
         fitness = evaluate(poses, scan, tree, point_weights)
         elites = poses[np.argsort(fitness)[::-1][:ELITE_K]]
 
-        n_children = population - ELITE_K - IMMIGRANTS
-        poses = np.concatenate([
-            elites,
-            mutate(elites, rng, n_children, sigma_xy, sigma_yaw),
-            random_population(rng, IMMIGRANTS, bounds),
-        ], axis=0)
+        # selection stays truncation in every arm: moving selection and reproduction at
+        # once would leave a measured difference with two candidate causes
+        bred = [elites]
+        if n_cross:
+            bred.append(crossover(elites, rng, n_cross, crossover_mode, sigma_xy, sigma_yaw))
+        bred.append(mutate(elites, rng, n_children - n_cross, sigma_xy, sigma_yaw))
+        bred.append(random_population(rng, IMMIGRANTS, bounds))
+        poses = np.concatenate(bred, axis=0)
 
         sigma_xy *= SIGMA_DECAY
         sigma_yaw *= SIGMA_DECAY
@@ -179,14 +245,16 @@ def evolve(scan: np.ndarray, tree: cKDTree, bounds, rng,
 
 
 def run_scenario(scenario_dir: str, map_points: np.ndarray, tree: cKDTree, bounds, seed: int,
-                  bands=None, band_weights=None, banding: str = FITNESS_BANDING):
+                  bands=None, band_weights=None, banding: str = FITNESS_BANDING,
+                  crossover_mode: str = CROSSOVER):
     scan = np.asarray(o3d.io.read_point_cloud(os.path.join(scenario_dir, "lidar.pcd")).points)
 
     rng = np.random.default_rng(seed)
     sample = scan if len(scan) <= SCAN_SAMPLE else scan[rng.choice(len(scan), SCAN_SAMPLE, replace=False)]
 
     weights = scan_point_weights(sample, bands, band_weights, banding) if bands else None
-    poses, fitness = evolve(sample, tree, bounds, rng, point_weights=weights)
+    poses, fitness = evolve(sample, tree, bounds, rng, point_weights=weights,
+                             crossover_mode=crossover_mode)
     top_poses, top_fitness = distinct_top(poses, fitness, N_HYPOTHESES, HYPOTHESIS_MIN_SEP_M)
     top_poses, top_fitness = confident_subset(top_poses, top_fitness, HYPOTHESIS_KEEP_RATIO)
 
@@ -227,6 +295,9 @@ def main():
     parser.add_argument("--banding", default=FITNESS_BANDING,
                          choices=["none", "per-point", "per-band"],
                          help="how bl_bbs's ceiling slice weights are spent on fitness")
+    parser.add_argument("--crossover", default=CROSSOVER,
+                         choices=["none", "uniform", "blend", "blx"],
+                         help="recombination operator, or none for a mutation-only search")
     args = parser.parse_args()
 
     map_points = np.asarray(o3d.io.read_point_cloud(args.map).points)
@@ -245,7 +316,8 @@ def main():
     for scenario_id in scenario_ids:
         t0 = time.time()
         refined = run_scenario(os.path.join(args.scenarios, scenario_id), map_points, tree,
-                                bounds, args.seed, bands, band_weights, args.banding)
+                                bounds, args.seed, bands, band_weights, args.banding,
+                                args.crossover)
         weights = hypothesis_weights([f for _, _, _, f in refined])
 
         for k, ((x, y, yaw, fit), w) in enumerate(zip(refined, weights)):
@@ -263,7 +335,8 @@ def main():
         "immigrants": IMMIGRANTS, "sigma_xy_m": SIGMA_XY_M, "sigma_yaw_deg": SIGMA_YAW_DEG,
         "sigma_decay": SIGMA_DECAY, "inlier_dist_m": INLIER_DIST_M,
         "scan_sample": SCAN_SAMPLE, "seed": args.seed, "banding": args.banding,
-        "hypothesis_keep_ratio": HYPOTHESIS_KEEP_RATIO,
+        "hypothesis_keep_ratio": HYPOTHESIS_KEEP_RATIO, "crossover": args.crossover,
+        "crossover_rate": CROSSOVER_RATE if args.crossover != "none" else 0.0,
     }, n_scenarios=len(scenario_ids))
     print(f"wrote {args.out} ({len(scenario_ids)} scenarios)")
 

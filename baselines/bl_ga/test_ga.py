@@ -18,6 +18,10 @@ hypothesis_weights = _run.hypothesis_weights
 mutate = _run.mutate
 random_population = _run.random_population
 confident_subset = _run.confident_subset
+crossover = _run.crossover
+recombine = _run.recombine
+BLX_ALPHA = _run.BLX_ALPHA
+BLX_MAX_PARENT_SEP_M = _run.BLX_MAX_PARENT_SEP_M
 scan_point_weights = _run.scan_point_weights
 SENSOR_HEIGHT_M = _run.SENSOR_HEIGHT_M
 
@@ -212,3 +216,84 @@ def test_per_band_fitness_lets_a_sparse_ceiling_break_a_tie():
                        scan_point_weights(scan, bands, [1.0, 2.0], "per-band"))
     assert flat[0] > flat[1] and banded[0] > banded[1]
     assert (banded[0] - banded[1]) > 10 * (flat[0] - flat[1])
+
+
+def test_recombine_takes_yaw_the_short_way_round():
+    """The wrap is the whole trap in blending an angle: 179 and -179 degrees are two
+    degrees apart, and a straight average of them is 0, the exact opposite heading."""
+    a = np.array([[0.0, 0.0, np.radians(179.0)]])
+    b = np.array([[0.0, 0.0, np.radians(-179.0)]])
+    child = recombine(a, b, np.full((1, 1), 0.5))
+
+    assert abs(abs(child[0, 2]) - np.pi) < np.radians(1.0)
+
+
+def test_uniform_crossover_only_ever_copies_a_parent_gene():
+    """The swap must not invent values. Every gene of every child has to be one of the
+    two parents' own, including yaw, which travels through the arc form and back."""
+    rng = np.random.default_rng(10)
+    elites = np.array([[1.0, 2.0, 0.5], [-4.0, 9.0, -2.0]])
+    children = crossover(elites, rng, 300, "uniform", sigma_xy=0.5, sigma_yaw=10.0)
+
+    for gene, values in enumerate([{1.0, -4.0}, {2.0, 9.0}, {0.5, -2.0}]):
+        nearest = [min(values, key=lambda v: abs(v - c)) for c in children[:, gene]]
+        assert np.allclose(children[:, gene], nearest, atol=1e-9), f"gene {gene} invented"
+
+
+def test_blx_children_stay_in_the_widened_parent_interval():
+    """BLX-alpha draws from the parents' own spread, widened by alpha. That is the
+    adaptive step size the operator is here to test, so pin the interval."""
+    rng = np.random.default_rng(11)
+    elites = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]])   # 2 m apart, inside the gate
+    children = crossover(elites, rng, 500, "blx", sigma_xy=0.5, sigma_yaw=10.0)
+
+    span = 2.0
+    assert children[:, 0].min() >= -BLX_ALPHA * span - 1e-9
+    assert children[:, 0].max() <= span * (1.0 + BLX_ALPHA) + 1e-9
+    # and it must actually use the width, not collapse onto the parents
+    assert children[:, 0].std() > 0.4
+
+
+def test_blx_refuses_to_blend_across_two_aliases():
+    """Two elites a rack pitch apart are competing answers, not two halves of one. Their
+    midpoint is the empty aisle between two racks and fits nothing, so the gate must send
+    those pairs to plain mutation instead."""
+    rng = np.random.default_rng(12)
+    separation = 4 * BLX_MAX_PARENT_SEP_M
+    elites = np.array([[0.0, 0.0, 0.0], [separation, 0.0, 0.0]])
+    children = crossover(elites, rng, 400, "blx", sigma_xy=0.5, sigma_yaw=10.0)
+
+    midpoint = np.abs(children[:, 0] - separation / 2) < separation / 4
+    assert not midpoint.any(), "gate let a cross-alias blend through"
+    # the fallback is a jitter of one parent, so children cluster on the parents themselves
+    on_parent = np.minimum(np.abs(children[:, 0]), np.abs(children[:, 0] - separation)) < 3.0
+    assert on_parent.mean() > 0.98
+
+
+def test_every_crossover_mode_returns_wrapped_poses():
+    rng = np.random.default_rng(13)
+    elites = random_population(rng, 20, ((-50.0, 50.0), (-50.0, 50.0)))
+    for mode in ("uniform", "blend", "blx"):
+        children = crossover(elites, rng, 200, mode, sigma_xy=1.0, sigma_yaw=20.0)
+        assert children.shape == (200, 3)
+        assert np.all(np.abs(children[:, 2]) <= np.pi), mode
+        assert np.all(np.isfinite(children)), mode
+
+
+def test_crossover_none_changes_nothing_and_a_mode_does():
+    """The control arm has to be the old search exactly, or the comparison is against a
+    baseline that moved. n_cross == 0 skips the operator entirely, so the RNG stream is
+    untouched; a real mode must then visibly change the outcome."""
+    rng = np.random.default_rng(14)
+    map_points = _asymmetric_cluster(12.0, 8.0, rng)
+    tree = cKDTree(map_points)
+    scan = map_points - np.array([12.0, 8.0, SENSOR_HEIGHT_M])
+    bounds = ((0.0, 25.0), (0.0, 20.0))
+
+    def search(mode):
+        poses, fitness = evolve(scan, tree, bounds, np.random.default_rng(15),
+                                 population=120, generations=8, crossover_mode=mode)
+        return poses[np.argmax(fitness)]
+
+    assert np.array_equal(search("none"), search("none"))
+    assert not np.array_equal(search("none"), search("blx"))
