@@ -13,9 +13,11 @@ Two tracks: **Track A** is single-shot kidnapped-robot localization.
 much or as little of it as you need before committing to an answer. You're
 scored on both accuracy and how much of the budget you used.
 
-Two of the shipped baselines searching the same synthetic warehouse, one
-sampled and evolutionary, one exhaustive and correlative, top-down and
-perspective, on one shared clock:
+Two of the shipped baselines searching the same warehouse, one sampled and
+evolutionary, one exhaustive and correlative, top-down and perspective, on
+one shared clock. Two real dev scenarios in sequence: the first `bl_ga`
+finds, the second it misses by 142 metres while still explaining most of
+what it sees.
 
 ![Genetic Evolution against Fast Fourier Transform](docs/images/search_ga_vs_slices.gif)
 
