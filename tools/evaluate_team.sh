@@ -2,11 +2,15 @@
 # One-shot: run a team's submission against a dataset, score it with this
 # repo's own eval/score.py, and merge the result with their self-reported
 # numbers into one JSON record. Wraps run_submission.sh; see that script for
-# what COMMAND and the $SCENARIOS/$MAP/$OUT env vars mean.
+# what COMMAND, the $SCENARIOS/$MAP/$OUT env vars, and the optional
+# --map/--scenarios/--gt/--tiers overrides mean (needed whenever DATASET_DIR
+# isn't laid out as map/prior_map.pcd, scenarios/A/, gt/A.txt -- e.g. the
+# shipped dev set, which nests scenarios and gt under scenarios/dev/).
 #
 # Usage:
 #   tools/evaluate_team.sh LABEL SUBMISSION_ROOT DATASET_DIR \
-#       SELF_SCORE SELF_SEC_PER_SCENARIO SELF_SOURCE -- COMMAND...
+#       SELF_SCORE SELF_SEC_PER_SCENARIO SELF_SOURCE \
+#       [--map PATH] [--scenarios DIR] [--gt PATH] [--tiers PATH] -- COMMAND...
 #
 #   LABEL                  short id, e.g. aborrt
 #   SELF_SCORE             team's own reported dev-set score, or "NA"
@@ -16,19 +20,31 @@
 set -euo pipefail
 
 if [ $# -lt 7 ]; then
-    echo "usage: $0 LABEL SUBMISSION_ROOT DATASET_DIR SELF_SCORE SELF_SEC_PER_SCENARIO SELF_SOURCE -- COMMAND..." >&2
+    echo "usage: $0 LABEL SUBMISSION_ROOT DATASET_DIR SELF_SCORE SELF_SEC_PER_SCENARIO SELF_SOURCE [--map PATH] [--scenarios DIR] [--gt PATH] [--tiers PATH] -- COMMAND..." >&2
     exit 2
 fi
 
 LABEL=$1 SUBMISSION_ROOT=$2 DATASET_DIR=$3 SELF_SCORE=$4 SELF_SEC=$5 SELF_SOURCE=$6
 shift 6
-[ "$1" = "--" ] || { echo "usage: $0 LABEL SUBMISSION_ROOT DATASET_DIR SELF_SCORE SELF_SEC_PER_SCENARIO SELF_SOURCE -- COMMAND..." >&2; exit 2; }
-shift
+
+DATASET_ARGS=()
+while [ "${1:-}" != "--" ]; do
+    if [ $# -lt 2 ]; then
+        echo "usage: $0 LABEL SUBMISSION_ROOT DATASET_DIR SELF_SCORE SELF_SEC_PER_SCENARIO SELF_SOURCE [--map PATH] [--scenarios DIR] [--gt PATH] [--tiers PATH] -- COMMAND..." >&2
+        exit 2
+    fi
+    case "$1" in
+        --map|--scenarios|--gt|--tiers) DATASET_ARGS+=("$1" "$2") ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+    shift 2
+done
+shift  # consume --
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$HERE/results/tiebreaker/$LABEL"
 
-"$HERE/tools/run_submission.sh" "$SUBMISSION_ROOT" "$DATASET_DIR" "$LABEL" -- "$@"
+"$HERE/tools/run_submission.sh" "$SUBMISSION_ROOT" "$DATASET_DIR" "$LABEL" "${DATASET_ARGS[@]}" -- "$@"
 
 # score.py nests its own output under results/tiebreaker/<label>/dev_<label>_<timestamp>/;
 # take the most recent one in case this label was ever run before.

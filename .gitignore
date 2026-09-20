@@ -34,3 +34,6 @@ map/
 
 # Written by tools/run_submission.sh / tools/evaluate_team.sh
 results/
+
+# Other teams' private submission archives, downloaded locally, never tracked
+drive-download*
