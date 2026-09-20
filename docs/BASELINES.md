@@ -56,8 +56,8 @@ it. `bl_vpr_rerank` writes no compute sidecar, so its cost is not recorded.
 
 | method | score | SR@fine | SR@coarse | oracle@fine | mean loss | sec/scenario | peak RSS (MB) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `bl_bbs` | 97.74 | 0.975 | 0.975 | 0.975 | 0.0226 | 2.65 | 1100 |
-| `bl_vpr_rerank` | 97.74 | 0.975 | 0.975 | 0.975 | 0.0226 | not recorded | not recorded |
+| `bl_bbs` | 99.50 | 1.000 | 1.000 | 1.000 | 0.0050 | 2.65 | 1100 |
+| `bl_vpr_rerank` | 99.50 | 1.000 | 1.000 | 1.000 | 0.0050 | not recorded | not recorded |
 | `bl_ga` | 27.96 | 0.125 | 0.125 | 0.125 | 0.7204 | 10.27 | 1100 |
 | `bl_retrieval_gicp` | 7.63 | 0.000 | 0.000 | 0.000 | 0.9237 | 23.27 | 1218 |
 | random guess | 1.64 | - | - | - | 0.9836 | - | - |
@@ -453,10 +453,15 @@ other two are 26.7 m and 164.1 m away:
 
 ![Report scenario map](images/report_scenario_map.png)
 
-Scenario 000014, the only one `bl_bbs` misses. Its estimate has the same
-northing to within 3 mm and the same heading to within 0.06 degrees, but sits
-110.2 m along the aisle on an identical-looking bay. This is what rack-level
-aliasing looks like when it beats an otherwise exact matcher:
+Scenario 000014, previously reported as `bl_bbs`'s one miss: same northing to
+within 3 mm, same heading to within 0.06 degrees, but 110.2 m along the aisle
+on an identical-looking bay. That was not rack-level aliasing -- `bl_bbs`
+sliced its scan into height bands using the map's world-frame z-extent while
+the scan itself was still in the sensor-local frame, one band high off where
+it should have been. Fixed by lifting the scan into the map frame before
+slicing (`baselines/bl_bbs/run.py`); this scenario now resolves to 2 mm
+translation error. The screenshot below is kept as a record of what that bug
+looked like in the report, not as a genuine aliasing example:
 
 ![Aliasing failure](images/report_aliasing_failure.png)
 

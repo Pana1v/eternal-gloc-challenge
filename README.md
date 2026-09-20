@@ -37,6 +37,36 @@ Requires Docker; everything else runs inside the image.
 5. **Self-score**: `python eval/score.py --submission submission.txt --gt scenarios/dev/gt/A.txt --track A --out-dir results`.
    This is the exact same scoring code used for the official eval.
 
+## Validating a submission with the official harness
+
+`tools/run_submission.sh` and `tools/evaluate_team.sh` are the same harness used
+to score every official submission: they run a team's own command against a
+dataset, time it independently, and grade the result with this repo's
+unmodified `eval/score.py` -- so self-reported numbers and official ones come
+from the same code path.
+
+Both take a `DATASET_DIR` and, by default, derive `map/prior_map.pcd`,
+`scenarios/A/`, and `gt/A.txt` from it -- the layout of a packaged tiebreaker
+dataset. The shipped dev set does **not** follow that layout (its scenarios
+and ground truth live under `scenarios/dev/`, not at the top level), so point
+at it with the `--map` / `--scenarios` / `--gt` / `--tiers` overrides:
+
+```
+tools/run_submission.sh . . bl_bbs_dev \
+    --scenarios scenarios/dev/A --gt scenarios/dev/gt/A.txt -- \
+    bash -c 'python3 baselines/bl_bbs/run.py --scenarios "$SCENARIOS" --map "$MAP" --out "$OUT"'
+```
+
+The `bash -c '...'` wrapper matters: it defers expanding `$SCENARIOS`/`$MAP`/`$OUT`
+until after the script has exported them. Drop the wrapper and your own shell
+expands those to empty before the script even runs.
+
+Point `DATASET_DIR` (and the overrides) at any directory with the same shape
+to grade against a different map or scenario set entirely -- there is nothing
+dev-set-specific about the harness itself. `tools/evaluate_team.sh` wraps the
+same call and additionally merges in a team's self-reported score/compute
+numbers; see its header for the full argument list.
+
 ## Read next
 
 - [`docs/CHALLENGE.md`](docs/CHALLENGE.md): full problem statement, scenario formats, scoring formulas, submission format, grading rubric (40% eval score, 30% write-up, 20% code quality, 10% experimental hygiene).
@@ -59,8 +89,8 @@ Track A, 40 dev scenarios. `S-fine` is 0.5 m and 5 degrees.
 
 | method | score | SR@fine | sec/scenario |
 | --- | --- | --- | --- |
-| `bl_bbs` multi-slice correlative search | 97.74 | 0.975 | 2.65 |
-| `bl_vpr_rerank` camera edge re-ranking | 97.74 | 0.975 | not recorded |
+| `bl_bbs` multi-slice correlative search | 99.50 | 1.000 | 2.65 |
+| `bl_vpr_rerank` camera edge re-ranking | 99.50 | 1.000 | not recorded |
 | `bl_ga` evolutionary pose search | 27.96 | 0.125 | 10.27 |
 | `bl_retrieval_gicp` polar-histogram retrieval | 7.63 | 0.000 | 23.27 |
 | random guess (reference floor) | 1.64 | - | - |
@@ -79,10 +109,14 @@ truth. Here two methods sit on the truth while the others land 26.7 m and
 
 ![Report scenario map](docs/images/report_scenario_map.png)
 
-The warehouse is repetitive enough that even an exact matcher can be beaten.
-This is the one scenario `bl_bbs` misses: same northing to within 3 mm, same
-heading to within 0.06 degrees, and 110.2 m along the aisle on a bay that
-looks identical.
+This scenario was previously reported here as an aliasing miss: same northing
+to within 3 mm, same heading to within 0.06 degrees, but 110.2 m along the
+aisle on a bay that looks identical. It wasn't aliasing -- `bl_bbs` sliced its
+scan into height bands using the map's world-frame z-extent while the scan
+was still in the sensor-local frame, one band high off where it should have
+been. Fixed by lifting the scan into the map frame before slicing; the
+screenshot is kept as a record of that bug, not as a genuine example (see
+[`docs/BASELINES.md`](docs/BASELINES.md) for the full account).
 
 ![Aliasing failure](docs/images/report_aliasing_failure.png)
 
