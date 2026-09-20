@@ -31,3 +31,6 @@ htmlcov/
 
 # Fetched by tools/fetch_map.sh, not tracked: 202 MB, over the blob limit
 map/
+
+# Written by tools/run_submission.sh / tools/evaluate_team.sh
+results/
