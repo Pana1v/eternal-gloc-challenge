@@ -89,8 +89,8 @@ Track A, 40 dev scenarios. `S-fine` is 0.5 m and 5 degrees.
 
 | method | score | SR@fine | sec/scenario |
 | --- | --- | --- | --- |
-| `bl_bbs` multi-slice correlative search | 97.74 | 0.975 | 2.65 |
-| `bl_vpr_rerank` camera edge re-ranking | 97.74 | 0.975 | not recorded |
+| `bl_bbs` multi-slice correlative search | 99.50 | 1.000 | 2.65 |
+| `bl_vpr_rerank` camera edge re-ranking | 99.50 | 1.000 | not recorded |
 | `bl_ga` evolutionary pose search | 27.96 | 0.125 | 10.27 |
 | `bl_retrieval_gicp` polar-histogram retrieval | 7.63 | 0.000 | 23.27 |
 | random guess (reference floor) | 1.64 | - | - |
@@ -109,10 +109,14 @@ truth. Here two methods sit on the truth while the others land 26.7 m and
 
 ![Report scenario map](docs/images/report_scenario_map.png)
 
-The warehouse is repetitive enough that even an exact matcher can be beaten.
-This is the one scenario `bl_bbs` misses: same northing to within 3 mm, same
-heading to within 0.06 degrees, and 110.2 m along the aisle on a bay that
-looks identical.
+This scenario was previously reported here as an aliasing miss: same northing
+to within 3 mm, same heading to within 0.06 degrees, but 110.2 m along the
+aisle on a bay that looks identical. It wasn't aliasing -- `bl_bbs` sliced its
+scan into height bands using the map's world-frame z-extent while the scan
+was still in the sensor-local frame, one band high off where it should have
+been. Fixed by lifting the scan into the map frame before slicing; the
+screenshot is kept as a record of that bug, not as a genuine example (see
+[`docs/BASELINES.md`](docs/BASELINES.md) for the full account).
 
 ![Aliasing failure](docs/images/report_aliasing_failure.png)
 
