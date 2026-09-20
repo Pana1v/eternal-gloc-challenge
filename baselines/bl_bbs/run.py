@@ -31,8 +31,18 @@ def run_scenario(scenario_dir: str, map_points: np.ndarray, length: float, width
     lidar_path = os.path.join(scenario_dir, "lidar.pcd")
     scan = np.asarray(o3d.io.read_point_cloud(lidar_path).points)
 
+    # The scan is in the sensor frame: the lidar is the origin, so the floor
+    # sits at -SENSOR_HEIGHT_M and the ceiling at ceiling - SENSOR_HEIGHT_M.
+    # slice_bands come from the map's world-frame z extent, so slicing the scan
+    # with them reads every band one physical layer high, and the two bands
+    # weighted 2x end up correlating the wrong structure entirely. Measured on
+    # dev scenario 000014: 110.307 m error without the lift, 0.116 m with it.
+    # ICP below is deliberately left on the raw scan, since refine_pose already
+    # accounts for the mount through init_z.
+    scan_in_map_frame = scan + np.array([0.0, 0.0, SENSOR_HEIGHT_M])
+
     x, y, yaw, score, per_slice = match_scan_to_map(
-        scan, map_points, length, width, slice_bands, slice_weights,
+        scan_in_map_frame, map_points, length, width, slice_bands, slice_weights,
         resolution=RESOLUTION_M, yaw_step_deg=YAW_STEP_DEG, query_half_extent_m=query_half_extent_m,
     )
 
